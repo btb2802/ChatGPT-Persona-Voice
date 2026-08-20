@@ -10,8 +10,8 @@
 #include <windows.h>
 
 #include <audioclient.h>
-#include <devpkey.h>
 #include <fcntl.h>
+#include <propkeydef.h>
 #include <functiondiscoverykeys_devpkey.h>
 #include <io.h>
 #include <mmdeviceapi.h>
