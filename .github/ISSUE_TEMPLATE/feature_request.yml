@@ -1,0 +1,70 @@
+name: Feature request
+description: Propose a focused product, platform, adapter, documentation, or developer-workflow improvement.
+title: "[Feature]: "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Large platform routes, engines, installers, and protocol changes should explain how they preserve
+        fail-closed behavior, licensing, privacy, bounded resources, and honest release status.
+
+  - type: checkboxes
+    id: preflight
+    attributes:
+      label: Preflight
+      options:
+        - label: I searched existing issues and reviewed the roadmap/platform matrix.
+          required: true
+        - label: This request does not depend on hidden pass-through, fake readiness, or an unlicensed/unauthorized voice.
+          required: true
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What concrete user or contributor problem exists today?
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed outcome
+      description: Describe observable behavior, not only an implementation library.
+    validations:
+      required: true
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - macOS audio path
+        - Windows platform path
+        - Linux platform path
+        - Voice engine or model adapter
+        - Installer or release engineering
+        - Privacy, security, or consent
+        - Renderer or design system
+        - Testing, CI, or documentation
+        - Other
+    validations:
+      required: true
+
+  - type: textarea
+    id: contracts
+    attributes:
+      label: Safety and contract impact
+      description: Explain route ownership, failure/recovery, queue/time bounds, formats, and capability reporting when applicable.
+
+  - type: textarea
+    id: privacy_licenses
+    attributes:
+      label: Privacy, network, and licensing impact
+      description: List new data, downloads/endpoints, permissions, third-party code/models/voices, and required terms.
+
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Completion evidence
+      description: What tests, smokes, benchmarks, or clean-machine checks would prove this complete?

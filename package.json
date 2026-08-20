@@ -1,0 +1,169 @@
+{
+  "name": "codex-persona-voice",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Local-first realtime voice relay for Codex and ChatGPT",
+  "author": "miuuyy",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/miuuyy/ChatGPT-Persona-Voice.git"
+  },
+  "homepage": "https://github.com/miuuyy/ChatGPT-Persona-Voice#readme",
+  "bugs": {
+    "url": "https://github.com/miuuyy/ChatGPT-Persona-Voice/issues"
+  },
+  "keywords": ["voice-conversion", "seed-vc", "electron", "chatgpt", "codex"],
+  "packageManager": "bun@1.3.11",
+  "engineInstaller": {
+    "uvVersion": "0.11.14"
+  },
+  "engines": {
+    "node": ">=22.12.0"
+  },
+  "type": "module",
+  "main": "electron/main.cjs",
+  "scripts": {
+    "dev": "bun run build:native && bun run test:native && bun run scripts/dev.cjs",
+    "setup:engine": "node scripts/setup-engine.cjs",
+    "smoke:engine": "node scripts/smoke-seed-vc-engine.cjs",
+    "build:voice-references": "node scripts/build-voicevox-references.cjs",
+    "build:native": "node scripts/build-native.cjs",
+    "test:native": "node scripts/test-native.cjs",
+    "smoke:capture:mac": "node scripts/smoke-native-capture.cjs",
+    "smoke:output:jitter:mac": "node scripts/smoke-native-output-jitter.cjs",
+    "typecheck": "tsc --noEmit",
+    "build:renderer": "vite build",
+    "build": "bun run typecheck && bun run build:renderer",
+    "test": "node --test tests/*.test.cjs",
+    "check": "bun run test && bun run build",
+    "package": "bun run build:native && bun run test:native && bun run build && bun run scripts/package.cjs",
+    "package:mac": "bun run build:native && bun run test:native && bun run build && bun run scripts/package.cjs --mac",
+    "package:win": "bun run build && bun run scripts/package.cjs --win",
+    "package:linux": "bun run build && bun run scripts/package.cjs --linux",
+    "start": "electron ."
+  },
+  "dependencies": {
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0"
+  },
+  "devDependencies": {
+    "@electron/fuses": "2.1.3",
+    "@types/node": "^22.10.2",
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "@vitejs/plugin-react": "^5.2.0",
+    "electron": "41.10.3",
+    "electron-builder": "^26.8.1",
+    "typescript": "^5.9.3",
+    "vite": "^6.0.0"
+  },
+  "build": {
+    "appId": "dev.miuuyy.codexpersonavoice",
+    "productName": "Codex Persona Voice",
+    "artifactName": "codex-persona-voice-${version}-${os}-${arch}.${ext}",
+    "asar": true,
+    "afterPack": "scripts/apply-electron-fuses.cjs",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "dist/**",
+      "electron/**",
+      "assets/icon.png",
+      "LICENSE",
+      "THIRD_PARTY_NOTICES.md",
+      "third_party_licenses/**",
+      "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "voices",
+        "to": "voices"
+      },
+      {
+        "from": "build/updater-runtime",
+        "to": "updater-runtime"
+      }
+    ],
+    "mac": {
+      "category": "public.app-category.utilities",
+      "icon": "assets/icon.png",
+      "minimumSystemVersion": "14.2",
+      "hardenedRuntime": true,
+      "binaries": [
+        "Contents/Resources/native/darwin/cpv-audio-capture",
+        "Contents/Resources/native/darwin/cpv-audio-output",
+        "Contents/Resources/native/darwin/cpv-atomic-swap",
+        "Contents/Resources/engine-installer/uv",
+        "Contents/Resources/updater-runtime/bun"
+      ],
+      "extendInfo": {
+        "NSAudioCaptureUsageDescription": "Codex Persona Voice captures output from the application you select so it can convert the voice locally before playback."
+      },
+      "target": ["dmg", "zip"],
+      "extraResources": [
+        {
+          "from": "node_modules/electron/dist/LICENSE",
+          "to": "LICENSE.electron.txt"
+        },
+        {
+          "from": "node_modules/electron/dist/LICENSES.chromium.html",
+          "to": "LICENSES.chromium.html"
+        },
+        {
+          "from": "native/bin/darwin/cpv-audio-capture",
+          "to": "native/darwin/cpv-audio-capture"
+        },
+        {
+          "from": "native/bin/darwin/cpv-audio-output",
+          "to": "native/darwin/cpv-audio-output"
+        },
+        {
+          "from": "native/bin/darwin/cpv-atomic-swap",
+          "to": "native/darwin/cpv-atomic-swap"
+        },
+        {
+          "from": "build/engine-installer",
+          "to": "engine-installer"
+        },
+        {
+          "from": "engine/seed-vc",
+          "to": "engine/seed-vc",
+          "filter": ["**/*", "!__pycache__/**"]
+        },
+        {
+          "from": "engine/vendor/seed-vc",
+          "to": "engine/vendor/seed-vc",
+          "filter": [
+            "**/*",
+            "!.git",
+            "!**/__pycache__/**",
+            "!**/*.pyc",
+            "!checkpoints/**",
+            "!.venv/**",
+            "!examples/**",
+            "!campplus_cn_common.bin"
+          ]
+        }
+      ]
+    },
+    "win": {
+      "icon": "assets/icon.png",
+      "target": ["nsis"]
+    },
+    "linux": {
+      "category": "AudioVideo",
+      "icon": "assets/icon.png",
+      "target": ["AppImage"]
+    },
+    "nsis": {
+      "oneClick": true,
+      "perMachine": false,
+      "allowElevation": false,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "runAfterFinish": false
+    }
+  }
+}

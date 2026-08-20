@@ -1,0 +1,183 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Package (${{ matrix.runner }})
+    permissions:
+      contents: read
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-15
+            command: package:mac
+          - runner: windows-latest
+            command: package:win
+          - runner: ubuntu-latest
+            command: package:linux
+
+    steps:
+      - name: Check out tagged source
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+          submodules: recursive
+
+      - name: Set up Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: "22"
+
+      - name: Set up Python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: "3.11"
+
+      - name: Set up pinned Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: 1.3.11
+
+      - name: Set up pinned uv for the macOS engine installer
+        if: runner.os == 'macOS'
+        uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
+        with:
+          version: "0.11.14"
+
+      - name: Install frozen dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Verify pinned Seed-VC source revision
+        shell: bash
+        run: |
+          expected="$(node -p "require('./engine/seed-vc/model-lock.json').seedVcCommit")"
+          actual="$(git -C engine/vendor/seed-vc rev-parse HEAD)"
+          test "$actual" = "$expected"
+
+      - name: Verify source contracts
+        run: bun run check
+
+      - name: Build native package
+        run: bun run ${{ matrix.command }}
+
+      - name: Verify packaged macOS signature
+        if: runner.os == 'macOS'
+        run: |
+          archive="$(find artifacts -maxdepth 1 -name '*-mac-arm64.zip' -print -quit)"
+          test -n "$archive"
+          stage="$(mktemp -d)"
+          ditto -x -k "$archive" "$stage"
+          codesign --verify --deep --strict --verbose=2 "$stage/Codex Persona Voice.app"
+          test -x "$stage/Codex Persona Voice.app/Contents/Resources/updater-runtime/bun"
+          test "$("$stage/Codex Persona Voice.app/Contents/Resources/updater-runtime/bun" --version)" = "1.3.11"
+          test -x "$stage/Codex Persona Voice.app/Contents/Resources/engine-installer/uv"
+          test "$("$stage/Codex Persona Voice.app/Contents/Resources/engine-installer/uv" --version | awk '{print $2}')" = "0.11.14"
+
+      - name: Upload native artifacts
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: release-${{ matrix.runner }}
+          path: |
+            artifacts/*.dmg
+            artifacts/*.zip
+            artifacts/*.exe
+            artifacts/*.AppImage
+            artifacts/*.blockmap
+          if-no-files-found: error
+
+  publish:
+    name: Publish GitHub release
+    needs: build
+    environment: release-signing
+    permissions:
+      contents: write
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Check out tagged source
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+
+      - name: Download native artifacts
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          path: release-assets
+          merge-multiple: true
+
+      - name: Verify release tag matches package version
+        run: |
+          expected="v$(jq -r .version package.json)"
+          test "$GITHUB_REF_NAME" = "$expected"
+
+      - name: Add release notices
+        run: |
+          cp LICENSE release-assets/LICENSE
+          cp THIRD_PARTY_NOTICES.md release-assets/THIRD_PARTY_NOTICES.md
+          cp third_party_licenses/BUN-1.3.11-LICENSE.md release-assets/BUN-1.3.11-LICENSE.md
+          cp third_party_licenses/UV-0.11.14-LICENSE-MIT release-assets/UV-0.11.14-LICENSE-MIT
+          cp third_party_licenses/REACT-19-LICENSE release-assets/REACT-19-LICENSE
+
+      - name: Create canonical SHA-256 manifest
+        run: |
+          cd release-assets
+          checksum_file="$(mktemp)"
+          find . -maxdepth 1 -type f ! -name SHA256SUMS -print0 \
+            | sort -z \
+            | xargs -0 sha256sum \
+            | sed 's#  \./#  #' > "$checksum_file"
+          mv "$checksum_file" SHA256SUMS
+
+      - name: Sign canonical update manifest
+        env:
+          UPDATE_SIGNING_PRIVATE_KEY: ${{ secrets.UPDATE_SIGNING_PRIVATE_KEY }}
+        run: |
+          test -n "$UPDATE_SIGNING_PRIVATE_KEY"
+          key="$RUNNER_TEMP/codex-persona-voice-update-key.pem"
+          signature="$RUNNER_TEMP/SHA256SUMS.sig.bin"
+          umask 077
+          printf '%s\n' "$UPDATE_SIGNING_PRIVATE_KEY" > "$key"
+          openssl pkeyutl -sign -rawin \
+            -inkey "$key" \
+            -in release-assets/SHA256SUMS \
+            -out "$signature"
+          base64 -w 0 "$signature" > release-assets/SHA256SUMS.sig
+          printf '\n' >> release-assets/SHA256SUMS.sig
+          openssl pkeyutl -verify -rawin -pubin \
+            -inkey electron/update-signing-public.pem \
+            -in release-assets/SHA256SUMS \
+            -sigfile "$signature"
+          rm -f "$key" "$signature"
+
+      - name: Verify every published asset is checksummed
+        run: |
+          cd release-assets
+          while IFS= read -r -d '' file; do
+            name="${file#./}"
+            if [ "$name" = SHA256SUMS ] || [ "$name" = SHA256SUMS.sig ]; then continue; fi
+            awk -v asset="$name" '$2 == asset { found = 1 } END { exit found ? 0 : 1 }' SHA256SUMS
+          done < <(find . -maxdepth 1 -type f -print0)
+
+      - name: Publish GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mapfile -d '' release_files < <(find release-assets -maxdepth 1 -type f -print0)
+          test "${#release_files[@]}" -gt 0
+          if gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "Release $GITHUB_REF_NAME already exists; published assets are immutable" >&2
+            exit 1
+          fi
+          gh release create "$GITHUB_REF_NAME" "${release_files[@]}" \
+            --repo "$GITHUB_REPOSITORY" \
+            --title "$GITHUB_REF_NAME" \
+            --generate-notes

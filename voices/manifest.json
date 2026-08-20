@@ -1,0 +1,175 @@
+{
+  "schemaVersion": 1,
+  "sourceRelease": {
+    "name": "VOICEVOX",
+    "version": "0.25.2",
+    "url": "https://github.com/VOICEVOX/voicevox/releases/tag/0.25.2"
+  },
+  "voices": [
+    {
+      "id": "voicevox-shikoku-metan-normal",
+      "name": "Shikoku Metan",
+      "nativeName": "四国めたん",
+      "description": "Clear, poised anime voice",
+      "locale": "ja-JP",
+      "reference": "references/voicevox-shikoku-metan-normal.wav",
+      "referenceSha256": "157e4173b0778ecf52526191b947fbae1749cafc459b9773ecdd317c66b5e7fe",
+      "requiredCredit": "VOICEVOX:四国めたん",
+      "termsUrl": "https://zunko.jp/con_ongen_kiyaku.html"
+    },
+    {
+      "id": "voicevox-zundamon-normal",
+      "name": "Zundamon",
+      "nativeName": "ずんだもん",
+      "description": "Bright, childlike high voice",
+      "locale": "ja-JP",
+      "reference": "references/voicevox-zundamon-normal.wav",
+      "referenceSha256": "c34c4403809cb2bb152f8d47d1b5976727aecec399e797a3a8d00748d4d92a58",
+      "requiredCredit": "VOICEVOX:ずんだもん",
+      "termsUrl": "https://zunko.jp/con_ongen_kiyaku.html"
+    },
+    {
+      "id": "voicevox-kasukabe-tsumugi-normal",
+      "name": "Kasukabe Tsumugi",
+      "nativeName": "春日部つむぎ",
+      "description": "Energetic, cheerful voice",
+      "locale": "ja-JP",
+      "reference": "references/voicevox-kasukabe-tsumugi-normal.wav",
+      "referenceSha256": "cd16ab224624b11cac623aee4cfe167df5982ff960d7b8812b5c3558d36d1bad",
+      "requiredCredit": "VOICEVOX:春日部つむぎ",
+      "termsUrl": "https://tsumugi-official.studio.site/rule"
+    },
+    {
+      "id": "voicevox-meimei-himari-normal",
+      "name": "Meimei Himari",
+      "nativeName": "冥鳴ひまり",
+      "description": "Soft, warm voice",
+      "locale": "ja-JP",
+      "reference": "references/voicevox-meimei-himari-normal.wav",
+      "referenceSha256": "812c3c2fe88e324f8fa6b206eaa836ba924312138e77d8a4392b675a11265e64",
+      "requiredCredit": "VOICEVOX:冥鳴ひまり",
+      "termsUrl": "https://meimeihimari.wixsite.com/himari/terms-of-use"
+    },
+    {
+      "id": "voicevox-kyushu-sora-normal",
+      "name": "Kyushu Sora",
+      "nativeName": "九州そら",
+      "description": "Elegant, mature voice",
+      "locale": "ja-JP",
+      "reference": "references/voicevox-kyushu-sora-normal.wav",
+      "referenceSha256": "d73ee4cbe9d56d12b74482b641e3efc6808bc65496ae1f19246d1c8a7f8689a7",
+      "requiredCredit": "VOICEVOX:九州そら",
+      "termsUrl": "https://zunko.jp/con_ongen_kiyaku.html"
+    },
+    {
+      "id": "voicevox-whitecul-normal",
+      "name": "WhiteCUL",
+      "nativeName": "WhiteCUL",
+      "description": "Pleasant, straightforward voice",
+      "locale": "ja-JP",
+      "reference": "references/voicevox-whitecul-normal.wav",
+      "referenceSha256": "721a52a565a3687eb8aba5e92432006857d100381076fa805fb779c35c483cbb",
+      "requiredCredit": "VOICEVOX:WhiteCUL",
+      "termsUrl": "https://www.whitecul.com/guideline"
+    },
+    {
+      "id": "voicevox-ouka-miko-normal",
+      "name": "Ouka Miko",
+      "nativeName": "櫻歌ミコ",
+      "description": "Cute young-girl voice",
+      "locale": "ja-JP",
+      "reference": "references/voicevox-ouka-miko-normal.wav",
+      "referenceSha256": "8160b5518b31d081cc17a097786cd370b30be50fb3be1b890d7b6069a5f1eca5",
+      "requiredCredit": "VOICEVOX:櫻歌ミコ",
+      "termsUrl": "https://voicevox35miko.studio.site/rule"
+    },
+    {
+      "id": "voicevox-sayo-normal",
+      "name": "Sayo",
+      "nativeName": "小夜/SAYO",
+      "description": "Gentle, mild voice",
+      "locale": "ja-JP",
+      "reference": "references/voicevox-sayo-normal.wav",
+      "referenceSha256": "4cf9f600b0cd0408482a88d2d3b60f293300fd76d437f54bc2a41463cb545852",
+      "requiredCredit": "VOICEVOX:小夜/SAYO",
+      "termsUrl": "https://316soramegu.wixsite.com/sayo-official/guideline"
+    },
+    {
+      "id": "voicevox-nurse-robo-type-t-normal",
+      "name": "Nurse Robo Type T",
+      "nativeName": "ナースロボ＿タイプＴ",
+      "description": "Calm, reserved voice",
+      "locale": "ja-JP",
+      "reference": "references/voicevox-nurse-robo-type-t-normal.wav",
+      "referenceSha256": "8bb75561202d45d720e455a6a5f71d784faf51d605a4d739987655adc5279c72",
+      "requiredCredit": "VOICEVOX:ナースロボ＿タイプＴ",
+      "termsUrl": "https://www.krnr.top/rules"
+    },
+    {
+      "id": "voicevox-haruka-nana-normal",
+      "name": "Haruka Nana",
+      "nativeName": "春歌ナナ",
+      "description": "Lively, powerful voice",
+      "locale": "ja-JP",
+      "reference": "references/voicevox-haruka-nana-normal.wav",
+      "referenceSha256": "35b87b4a1351f0ac200e8ee2f952f529ba5893aa5154fb7f58c638dc7a1f2537",
+      "requiredCredit": "VOICEVOX:春歌ナナ",
+      "termsUrl": "https://nanahira.jp/haruka_nana/guideline.html"
+    },
+    {
+      "id": "voicevox-nekotsuka-aru-normal",
+      "name": "Nekotsuka Aru",
+      "nativeName": "猫使アル",
+      "description": "Full-bodied, friendly voice",
+      "locale": "ja-JP",
+      "reference": "references/voicevox-nekotsuka-aru-normal.wav",
+      "referenceSha256": "58427e41c845abb879afcdb97094e7bef6b6fe26ae1104fe6df687bf4d9da39f",
+      "requiredCredit": "VOICEVOX:猫使アル",
+      "termsUrl": "https://nekotukarb.wixsite.com/nekonohako/利用規約"
+    },
+    {
+      "id": "voicevox-manbetsu-hanamaru-normal",
+      "name": "Manbetsu Hanamaru",
+      "nativeName": "満別花丸",
+      "description": "Vivid, distinctive voice",
+      "locale": "ja-JP",
+      "reference": "references/voicevox-manbetsu-hanamaru-normal.wav",
+      "referenceSha256": "bd5c24e6f27f0d797f70770aa08627bf79b95a5ca091251e1caa825d2d3a6b4d",
+      "requiredCredit": "VOICEVOX:満別花丸",
+      "termsUrl": "https://100hanamaru.wixsite.com/manbetsu-hanamaru/rule"
+    },
+    {
+      "id": "voicevox-kotoyomi-nia-normal",
+      "name": "Kotoyomi Nia",
+      "nativeName": "琴詠ニア",
+      "description": "Smooth, synthetic voice",
+      "locale": "ja-JP",
+      "reference": "references/voicevox-kotoyomi-nia-normal.wav",
+      "referenceSha256": "c7b4c1f7e8647b10caf1b7c155b758ac9b88c304be5470e8ba5f8ebccce0a751",
+      "requiredCredit": "VOICEVOX:琴詠ニア",
+      "termsUrl": "https://commons.nicovideo.jp/works/nc315435"
+    },
+    {
+      "id": "jarvis-community-high",
+      "name": "JARVIS (community)",
+      "nativeName": "J.A.R.V.I.S.",
+      "description": "High-quality British assistant voice from a community model",
+      "locale": "en-GB",
+      "reference": "references/jarvis-community-high.wav",
+      "referenceSha256": "ce8aeeb8ac1bdeb30844eb31353310af58cb3f7e00f44543ceaa386cd91ee011",
+      "requiredCredit": "jgkawell/jarvis (MIT)",
+      "termsUrl": "https://huggingface.co/jgkawell/jarvis"
+    },
+    {
+      "id": "seed-vc-donald-trump-example",
+      "name": "Donald Trump (AI likeness)",
+      "nativeName": "Seed-VC upstream example",
+      "description": "Public-figure voice reference distributed with upstream Seed-VC",
+      "locale": "en-US",
+      "reference": "references/seed-vc-donald-trump-example.wav",
+      "referenceSha256": "716becc9daf00351dfe324398edea9e8378f9453408b27612d92b6721f80ddbc",
+      "requiredCredit": "Plachtaa/seed-vc upstream Trump example (GPL-3.0)",
+      "termsUrl": "https://github.com/Plachtaa/seed-vc/blob/51383efd921027683c89e5348211d93ff12ac2a8/examples/reference/trump_0.wav"
+    }
+  ]
+}

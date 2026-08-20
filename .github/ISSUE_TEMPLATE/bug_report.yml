@@ -1,0 +1,91 @@
+name: Bug report
+description: Report a reproducible launcher, contract, or supported macOS development-path defect.
+title: "[Bug]: "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        The end-to-end relay is currently a source-checkout demo on Apple Silicon macOS 14.2+.
+        Windows/Linux relay blockers and unqualified clean-machine packaged engine setup are known limitations.
+        Report sensitive audio, routes, paths, logs, or vulnerabilities through the private security link.
+
+  - type: checkboxes
+    id: preflight
+    attributes:
+      label: Preflight
+      options:
+        - label: I searched existing issues and read the troubleshooting/platform documentation.
+          required: true
+        - label: I removed private audio, credentials, usernames, and unnecessary local paths.
+          required: true
+        - label: This is not a security or privacy vulnerability requiring private disclosure.
+          required: true
+
+  - type: dropdown
+    id: platform
+    attributes:
+      label: Platform
+      options:
+        - Apple Silicon macOS 14.2+
+        - Intel macOS
+        - Windows
+        - Linux
+        - Other
+    validations:
+      required: true
+
+  - type: input
+    id: environment
+    attributes:
+      label: Environment
+      description: OS version, architecture, source commit, Bun/Node versions, and source or packaged run mode.
+      placeholder: "macOS 15.x, arm64, commit abc1234, Bun 1.3.x, Node 22.x, source checkout"
+    validations:
+      required: true
+
+  - type: input
+    id: runtime_state
+    attributes:
+      label: Runtime state and code
+      description: Include the exact Stopped/Armed/Running/Faulted state and stable blocker/error code when available.
+      placeholder: "Faulted — seed_vc_worker_failed"
+
+  - type: textarea
+    id: description
+    attributes:
+      label: What happened?
+      description: Describe the observed behavior and impact.
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Reproduction steps
+      placeholder: |
+        1. Start ...
+        2. Select ...
+        3. Run ...
+        4. Observe ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+
+  - type: textarea
+    id: diagnostics
+    attributes:
+      label: Redacted diagnostics
+      description: Paste only the minimal relevant log/error lines and exact commands/results. Do not attach conversation audio by default.
+      render: text
+
+  - type: textarea
+    id: additional
+    attributes:
+      label: Additional context
+      description: Include output device, permission state, selected source, or screenshots only when relevant and redacted.

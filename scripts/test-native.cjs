@@ -1,0 +1,108 @@
+"use strict";
+
+const fs = require("node:fs");
+const os = require("node:os");
+const path = require("node:path");
+const { spawnSync } = require("node:child_process");
+const { NativeFrameParser, encodeAudioFrame } = require("../electron/native-protocol.cjs");
+
+const PROJECT_ROOT = path.join(__dirname, "..");
+
+function selfTest(executable, expectedHelper) {
+  const result = spawnSync(executable, ["--self-test"], {
+    encoding: null,
+    windowsHide: true,
+  });
+  if (result.error) throw result.error;
+  if (result.status !== 0) {
+    throw new Error(result.stderr?.toString("utf8") || `${expectedHelper} self-test exited with ${result.status}`);
+  }
+  const messages = [];
+  const parser = new NativeFrameParser((message) => messages.push(message));
+  parser.push(result.stdout);
+  parser.finish();
+  if (messages.length !== 1 || messages[0].type !== "ready" || messages[0].helper !== expectedHelper) {
+    throw new Error(`${expectedHelper} returned an invalid native self-test response`);
+  }
+}
+
+function smokeOutput(executable) {
+  const samplesPerChannel = 1;
+  const frame = encodeAudioFrame({
+    sequence: 0,
+    sampleRate: 24_000,
+    channels: 1,
+    sampleFormat: "f32le",
+    samplesPerChannel,
+    pcm: Buffer.alloc(samplesPerChannel * Float32Array.BYTES_PER_ELEMENT),
+  });
+  const result = spawnSync(executable, ["--sample-rate", "24000", "--channels", "1"], {
+    input: Buffer.concat(Array(65).fill(frame)),
+    encoding: null,
+    timeout: 10_000,
+    windowsHide: true,
+  });
+  if (result.error) throw result.error;
+  if (result.status !== 0) {
+    throw new Error(result.stderr?.toString("utf8") || `Output smoke test exited with ${result.status}`);
+  }
+  const messages = [];
+  const parser = new NativeFrameParser((message) => messages.push(message));
+  parser.push(result.stdout);
+  parser.finish();
+  if (messages.length < 1 || messages[0].type !== "ready" || messages[0].helper !== "output" ||
+      messages[0].supportsJitterBuffer !== true || messages[0].startsWhenQueueFull !== true ||
+      messages[0].startupPrebufferMs !== 500 || !Array.isArray(messages[0].memberDeviceUids) ||
+      messages[0].memberDeviceUidsVerified !== true ||
+      typeof messages[0].isAggregateDevice !== "boolean" ||
+      messages.slice(1).some((message) => message.type !== "status" ||
+        message.helper !== "output" || message.state !== "running")) {
+    throw new Error("Output smoke test returned an invalid readiness frame or deadlocked at queue capacity");
+  }
+}
+
+function smokeAtomicSwap(executable) {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "cpv-atomic-swap-"));
+  try {
+    const first = path.join(root, "first");
+    const second = path.join(root, "second");
+    fs.mkdirSync(first);
+    fs.mkdirSync(second);
+    fs.writeFileSync(path.join(first, "identity"), "first");
+    fs.writeFileSync(path.join(second, "identity"), "second");
+    const result = spawnSync(executable, [first, second], { encoding: "utf8", timeout: 5_000 });
+    if (result.error) throw result.error;
+    if (result.status !== 0 ||
+        fs.readFileSync(path.join(first, "identity"), "utf8") !== "second" ||
+        fs.readFileSync(path.join(second, "identity"), "utf8") !== "first") {
+      throw new Error(result.stderr || "Atomic updater swap did not exchange both directories");
+    }
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+}
+
+function testNative(platform = process.platform) {
+  if (platform !== "darwin") {
+    console.log(`No native helper self-test is available on ${platform}.`);
+    return;
+  }
+  const capture = path.join(PROJECT_ROOT, "native/bin/darwin/cpv-audio-capture");
+  const output = path.join(PROJECT_ROOT, "native/bin/darwin/cpv-audio-output");
+  const atomicSwap = path.join(PROJECT_ROOT, "native/bin/darwin/cpv-atomic-swap");
+  selfTest(capture, "capture");
+  selfTest(output, "output");
+  smokeOutput(output);
+  smokeAtomicSwap(atomicSwap);
+  console.log("macOS capture, output, and atomic updater helper smoke tests passed.");
+}
+
+if (require.main === module) {
+  try { testNative(); }
+  catch (error) {
+    console.error(error instanceof Error ? error.message : String(error));
+    process.exitCode = 1;
+  }
+}
+
+module.exports = { selfTest, smokeAtomicSwap, smokeOutput, testNative };
