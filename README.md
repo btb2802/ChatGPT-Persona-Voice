@@ -23,14 +23,10 @@
   <img src="assets/architecture-visual-v2.png" alt="ChatGPT audio flowing through a local Seed-VC layer to the speaker" width="1200">
 </p>
 
-Codex Persona Voice is an independent, local-first desktop relay for ChatGPT and Codex voice
-mode. It captures the selected app, suppresses the original voice only after the complete route is
-ready, converts speech through a pinned local Seed-VC worker, and sends the converted stream to
-your speakers.
-
-The source application still owns the conversation and speech delivery; Persona Voice changes the
-target timbre locally without sending voice conversion to a cloud API. Output quality and timing
-vary with the machine, source audio, and selected reference.
+Codex Persona Voice is an independent desktop app that changes the voice of ChatGPT and Codex voice
+mode in near real time. The conversation stays in the source app, while voice conversion runs
+locally on your machine. Output quality and timing vary with the hardware, source audio, and
+selected reference.
 
 > [!IMPORTANT]
 > Voice conversion currently performs best with Japanese and Chinese source speech. English and
@@ -39,18 +35,16 @@ vary with the machine, source audio, and selected reference.
 
 ## Why Persona Voice
 
-- **Near-real-time conversion.** The current Seed-VC profile processes fixed 300 ms blocks and
-  streams 20 ms output frames. A dated M4 Pro engine-only smoke measured 212 ms p95 inference;
-  this is not a universal end-to-end latency guarantee.
-- **The original voice is replaced, not layered.** A process-scoped native route suppresses the
-  selected app only after capture and output are proven ready.
-- **Local inference.** Once installed, the locked model runtime performs active conversion
-  offline on the selected hardware profile. No voice API key is required.
+- **Near-real-time conversion.** The current Seed-VC profile processes speech in short blocks and
+  streams converted audio as it becomes available. Actual latency varies by hardware and route.
+- **The original voice is replaced, not layered.** Persona Voice suppresses the selected app's
+  original playback and sends the converted voice to your speakers.
+- **Local inference.** Once installed, conversion runs on your device. No voice API key is required.
 - **Voice presets and local references.** The included catalog contains credited VOICEVOX
-  identities and a small set of community/demo references. Local manifests can add private
-  references without committing them to the repository.
-- **Personalisation.** Pick a bundled identity, add an authorized private reference, and pair each
-  voice with its own character scene without changing the conversion pipeline.
+  identities and a small set of community/demo references. You can also add an authorized private
+  reference of your own.
+- **Personalisation.** Pick a bundled identity or pair an authorized reference with its own
+  character scene.
 - **Private history controls.** History is off by default. If enabled, only converted output can be
   stored, with six-hour cleanup by default and an immediate clear action.
 
@@ -58,25 +52,18 @@ vary with the machine, source audio, and selected reference.
 
 ```text
 ChatGPT / Codex app
-        │ selected process audio
+        │ voice output
         ▼
-Native process-audio route
-Core Audio · PipeWire/WirePlumber · WASAPI + owned sink
-        │ suppress original route after proof
-        │  bounded PCM
+Persona Voice audio route
         ▼
-Local Seed-VC worker ── 300 ms input / 20 ms output frames
+Local Seed-VC conversion
         │
-        ├──────────────▶ native platform output
-        ├──────────────▶ converted-only history
-        └──────────────▶ optional macOS BlackHole recording bus
+        ▼
+Speakers
 ```
 
-Each platform keeps ordinary playback audible while Persona Voice is idle: macOS leaves its tap
-detached, Linux uses an owned bypass stream, and the current Windows route keeps bounded passthrough
-to the physical output after the user assigns the app to Persona Voice Sink. Conversion engages
-only after the platform adapter proves capture and route ownership. The Electron renderer has no
-Node.js access; Electron main owns validated IPC, lifecycle, settings, and history.
+Persona Voice waits until the selected app, local engine, and output route are ready before replacing
+the original playback. If the route cannot be established safely, conversion does not start.
 
 Read the full [architecture](docs/ARCHITECTURE.md), [native protocol](docs/NATIVE_PROTOCOL.md),
 and [engine contract](docs/ENGINE_CONTRACT.md).
@@ -85,9 +72,19 @@ and [engine contract](docs/ENGINE_CONTRACT.md).
 
 https://github.com/user-attachments/assets/f43f9f90-a76f-4984-b061-145aa7db5467
 
-The demo is a real 1080p H.264 recording and uses the credited `VOICEVOX:小夜/SAYO` reference.
-
 ## Quick start
+
+### Download and use
+
+Download the latest macOS or Linux build from [Releases](https://github.com/miuuyy/ChatGPT-Persona-Voice/releases/latest).
+Windows is currently source-only while the required virtual-audio driver awaits Microsoft signing.
+
+1. Launch Persona Voice and complete the guided engine and system-audio setup.
+2. Open ChatGPT or Codex, then choose the source app and target voice in Persona Voice.
+3. Press **Start voice**, then enter voice mode in ChatGPT or Codex.
+
+See [Platform status](#platform-status) for requirements and
+[Troubleshooting](docs/TROUBLESHOOTING.md) if setup is blocked.
 
 ### Run from source
 
@@ -109,67 +106,19 @@ bun run setup:engine
 bun run dev
 ```
 
-Linux also needs PipeWire and WirePlumber. The first-run system-audio step can install the owned
-per-user ChatGPT/Codex routing policy and restart the user audio services once. Playback pauses
-briefly, but Persona Voice stays open. Contributors can inspect or perform the same operation
-directly:
-
-```bash
-node scripts/linux-audio-policy.cjs install --reload
-```
-
-That path is live-proven on Ubuntu 24.04 with WirePlumber 0.4 and on Fedora 42 with PipeWire
-1.4.11 / WirePlumber 0.5.14.
-
-Windows requires a Microsoft-signed `Persona Voice Sink` driver package. The elevated app installer
-installs/removes only that fixed signed package; repository builds can produce the driver source and
-user-mode helpers, but an unsigned local driver is not a clean installable product. The first-run
-system-audio step then guides live-route verification. Because the verifier does not silently change
-per-app policy, the current flow asks you to open ChatGPT/Codex and start live audio, select
-**Persona Voice Sink** under **Settings → System → Sound → Volume mixer**, then return to Persona
-Voice to verify and start guarded standby. Quit remains blocked until you restore that app to
-**Default** or the physical listening device and confirm restoration; the elevated uninstaller asks
-the same before removing the driver. A crash or force-kill can still leave Windows' persisted
-per-app preference pointing at the sink, so restoration must be checked manually.
-
-On first launch, choose **English**, **日本語**, or **简体中文** explicitly; Persona Voice never
-guesses the interface language. The following support step is optional, and the engine step can be
-completed immediately or later from Settings. Linux/Windows also show the platform-audio step
-described above. Then start ChatGPT or Codex, select it in Persona
-Voice, press **Start**, and enter voice mode. macOS requests Audio Capture permission on first use;
-Linux verifies the installed PipeWire/WirePlumber policy; Windows verifies the signed sink and the
-current app assignment. The first engine load is slower than later starts because models and the
-realtime inference path must be prepared. The interface language can be changed later under
-**Settings → Application**.
-
-### Packaged builds and engine installation
-
-The `v0.1.0` release publishes prebuilt macOS and Linux packages. Windows remains source-only until
-the owned virtual-sink driver has a Microsoft kernel-policy signature.
-
-The launcher package stays small by keeping the model runtime separate. Open
-**Settings → Voice → Install engine** to install the pinned private runtime into application data.
-The installer verifies the managed Python runtime, package lock, model revisions, and SHA-256
-hashes before publishing the engine atomically. Installation can be cancelled and resumed.
-
-No system Python, terminal command, or voice API key is required for in-app engine installation.
-Public distribution remains a separate gate. macOS still needs production signing/notarization and
-clean-machine qualification. Linux's packaged policy install/remove/reload UX is implemented but
-still needs clean-machine recovery qualification and broader distribution coverage. Windows
-packaging refuses to proceed unless
-`CODEX_PERSONA_VOICE_SIGNED_DRIVER_DIR` points to a Microsoft kernel-policy-signed driver package;
-that external driver-signing gate is not complete.
+Linux source runs also require PipeWire and WirePlumber. See [Development](docs/DEVELOPMENT.md) for
+platform setup, native build commands, and contributor verification.
 
 ## Platform status
 
-| Platform | Local engine | Native transparent relay | Current evidence / blocker |
-| --- | --- | --- | --- |
-| Apple Silicon macOS 14.2+ | MPS profile implemented | Core Audio capture/suppression/output implemented | Live path manually accepted; release signing and clean-machine qualification remain |
-| Linux x64 + NVIDIA | CUDA 13.0 profile implemented | PipeWire/WirePlumber per-app policy, in-app setup, capture, suppression, and output implemented | Live Ubuntu 24.04 / WirePlumber 0.4 and Fedora 42 / PipeWire 1.4.11 / WirePlumber 0.5.14 proof; clean packaged recovery and broader distributions remain to qualify |
-| Windows x64 + NVIDIA, build 20348+ | CUDA 13.0 profile implemented | WASAPI process capture/output and owned virtual-sink source/contracts implemented | No clean binary until Microsoft signs the driver; physical Windows E2E and explicit Volume Mixer restore remain unqualified |
-| Other hosts | No qualified realtime profile | Not qualified | Unsupported |
+| Platform | Availability | Requirements and current limits |
+| --- | --- | --- |
+| Apple Silicon macOS 14.2+ | Preview package available | MPS; production signing/notarization and clean-machine qualification remain |
+| Linux x64 + NVIDIA | Preview package available | CUDA 13.0, PipeWire, and WirePlumber; broader distribution coverage remains |
+| Windows x64 + NVIDIA, build 20348+ | Source only | Public package waits for a Microsoft-signed virtual-audio driver |
+| Other hosts | Unavailable | Unsupported |
 
-Implemented source paths are not the same as supported releases. See the detailed
+See the detailed
 [platform matrix](docs/PLATFORM_MATRIX.md) and [release gates](docs/RELEASE.md).
 
 ## Voice references
@@ -189,10 +138,7 @@ authentic speech or endorsement. Use only voices you are authorized to use. See 
 
 - Raw captured PCM is not intentionally persisted or logged.
 - History accepts only converted frames submitted to the output session.
-- Idle playback is preserved through the platform's detached tap, owned bypass, or bounded standby
-  path; conversion begins only after platform-specific route proof.
-- Engine or output faults retain explicit route ownership/uncertainty until the platform-specific
-  Stop and restoration flow completes.
+- Voice replacement starts only after the local engine and audio route are ready.
 - Settings, logs, models, references, and optional history remain in local workspace/application
   storage during use.
 - On macOS, BlackHole and OBS are separate trust boundaries. When using the converted-only recording bus,

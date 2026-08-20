@@ -5,9 +5,7 @@ body:
   - type: markdown
     attributes:
       value: |
-        Relay source paths exist for Apple Silicon macOS and NVIDIA Linux x64; Windows x64 has implemented source/contracts.
-        Linux live proof covers Ubuntu 24.04/WirePlumber 0.4 and Fedora 42/PipeWire 1.4.11/WirePlumber 0.5.14; Windows has no clean physical-host E2E and remains blocked on Microsoft driver signing.
-        Implemented source paths are not supported releases.
+        Check the platform matrix before reporting a platform-specific issue. Windows remains source-only until its audio driver is Microsoft-signed.
         Report sensitive audio, routes, paths, logs, or vulnerabilities through the private security link.
 
   - type: checkboxes

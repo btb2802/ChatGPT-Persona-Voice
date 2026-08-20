@@ -228,9 +228,9 @@ armed / engaging / running ─────────→ stopping → stopped
 | Windows converted output | 80 ms maximum frame; 500 ms startup; 1,500 ms capacity |
 | Windows standby output | 40 ms startup; 250 ms capacity |
 
-These are implementation limits, not an end-to-end latency SLO. The dated M4 Pro engine-only smoke
-does not include capture, the three-second discard, scheduling, native buffering, or hardware
-playback. `500 ms` is an output prebuffer target, not proof of 500 ms user-visible latency.
+These are implementation limits, not an end-to-end latency SLO. They do not include capture, the
+three-second discard, scheduling, or hardware playback. `500 ms` is an output prebuffer target, not
+proof of 500 ms user-visible latency.
 
 ## Persistence and privacy
 

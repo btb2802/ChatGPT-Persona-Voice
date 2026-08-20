@@ -163,27 +163,6 @@ Local benchmark artifacts can inform development, but they are not an end-to-end
 The 300 ms block, 3-second startup discard, and native output prebuffer all affect user-observed
 timing and must be represented in any future benchmark.
 
-### macOS local smoke observation (not an SLO)
-
-One Apple M4 Pro run of the current development smoke on 2026-08-09 reported:
-
-| Observation | Result |
-| --- | ---: |
-| Worker ready | 5.326 s |
-| Model load within worker | 2.19 s |
-| Warmup within worker | 1.00 s |
-| Conversion mean | 155.82 ms per 300 ms block |
-| Conversion p95 | 217.16 ms per 300 ms block |
-| Current MPS allocation | about 1.034 GB |
-| MPS driver allocation | about 1.351 GB |
-| Converted smoke output | 3.0 s |
-
-The same verification pass rehashed all seven locked model artifacts (about 1.4 GB) in 0.65 s.
-These are single-host development observations. The conversion p95 covers engine requests only; it
-excludes source capture, the explicit three-second discard, JavaScript scheduling/backpressure,
-native output prebuffering/rebuffering, and hardware playback. It must not be quoted as product
-first-audio or end-to-end p95 latency.
-
 ## Adapter invariants
 
 Every present or future model adapter must:
