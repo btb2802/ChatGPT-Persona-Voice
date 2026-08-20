@@ -2,6 +2,7 @@
 
 #include <devpkey.h>
 #include <bcrypt.h>
+#include <wincrypt.h>
 #include <mscat.h>
 #include <newdev.h>
 #include <setupapi.h>
@@ -27,6 +28,7 @@ constexpr wchar_t kInfName[] = L"PersonaVoiceSink.inf";
 constexpr wchar_t kCatalogName[] = L"cpv-audio-sink.cat";
 constexpr wchar_t kDriverName[] = L"cpv-audio-sink.sys";
 constexpr wchar_t kDriverDirectory[] = L"driver";
+constexpr DWORD kMaximumClassNameCharacters = 32;
 bool suppressProtocolOutput = false;
 
 class DeviceInfoSet {
@@ -356,9 +358,9 @@ bool removeDevice(HDEVINFO devices, SP_DEVINFO_DATA* device, bool* rebootRequire
 bool createRootDevice(const std::filesystem::path& inf, DeviceInfoSet* outputSet,
                       SP_DEVINFO_DATA* outputDevice) {
   GUID classGuid{};
-  wchar_t className[MAX_CLASS_NAME_LEN]{};
+  wchar_t className[kMaximumClassNameCharacters]{};
   if (!SetupDiGetINFClassW(
-          inf.c_str(), &classGuid, className, MAX_CLASS_NAME_LEN, nullptr)) {
+          inf.c_str(), &classGuid, className, kMaximumClassNameCharacters, nullptr)) {
     return false;
   }
   DeviceInfoSet devices(SetupDiCreateDeviceInfoList(&classGuid, nullptr));
