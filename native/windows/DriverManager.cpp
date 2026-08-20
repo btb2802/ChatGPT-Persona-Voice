@@ -1,5 +1,6 @@
 #include "WindowsAudioCommon.hpp"
 
+#include <initguid.h>
 #include <devpkey.h>
 #include <bcrypt.h>
 #include <wincrypt.h>
