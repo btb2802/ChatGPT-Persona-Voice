@@ -18,16 +18,18 @@ function findExecutable(command, {
   environment = process.env,
   exists = fs.existsSync,
 } = {}) {
+  const pathApi = platform === "win32" ? path.win32 : path.posix;
+  const delimiter = platform === "win32" ? ";" : ":";
   const explicit = command === "codex" ? environment.CODEX_PERSONA_VOICE_CODEX_BIN?.trim() : null;
   if (explicit) {
-    if (!path.isAbsolute(explicit)) throw new Error("CODEX_PERSONA_VOICE_CODEX_BIN must be absolute");
+    if (!pathApi.isAbsolute(explicit)) throw new Error("CODEX_PERSONA_VOICE_CODEX_BIN must be absolute");
     return exists(explicit) ? explicit : null;
   }
   const pathValue = environment.PATH || "";
   const extensions = executableExtensions(platform, environment);
-  for (const directory of pathValue.split(path.delimiter).filter(Boolean)) {
+  for (const directory of pathValue.split(delimiter).filter(Boolean)) {
     for (const extension of extensions) {
-      const candidate = path.join(directory, platform === "win32" ? `${command}${extension}` : command);
+      const candidate = pathApi.join(directory, platform === "win32" ? `${command}${extension}` : command);
       if (exists(candidate)) return candidate;
     }
   }

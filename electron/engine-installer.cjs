@@ -81,19 +81,19 @@ function resolveEngineStoragePaths({
     };
   }
   if (platform === "linux") {
-    const dataHome = typeof environment.XDG_DATA_HOME === "string" && path.isAbsolute(environment.XDG_DATA_HOME)
-      ? path.normalize(environment.XDG_DATA_HOME)
-      : path.join(homeDirectory, ".local", "share");
-    const cacheHome = typeof environment.XDG_CACHE_HOME === "string" && path.isAbsolute(environment.XDG_CACHE_HOME)
-      ? path.normalize(environment.XDG_CACHE_HOME)
-      : path.join(homeDirectory, ".cache");
-    const storageRoot = path.join(dataHome, productSlug, "engine");
-    const cacheRoot = path.join(cacheHome, productSlug);
+    const dataHome = typeof environment.XDG_DATA_HOME === "string" && path.posix.isAbsolute(environment.XDG_DATA_HOME)
+      ? path.posix.normalize(environment.XDG_DATA_HOME)
+      : path.posix.join(homeDirectory, ".local", "share");
+    const cacheHome = typeof environment.XDG_CACHE_HOME === "string" && path.posix.isAbsolute(environment.XDG_CACHE_HOME)
+      ? path.posix.normalize(environment.XDG_CACHE_HOME)
+      : path.posix.join(homeDirectory, ".cache");
+    const storageRoot = path.posix.join(dataHome, productSlug, "engine");
+    const cacheRoot = path.posix.join(cacheHome, productSlug);
     return {
-      runtimeRoot: path.join(storageRoot, "seed-vc"),
-      pythonRoot: path.join(storageRoot, "python"),
-      cacheRoot: path.join(cacheRoot, "uv"),
-      tempRoot: path.join(cacheRoot, "temp", "engine-installer"),
+      runtimeRoot: path.posix.join(storageRoot, "seed-vc"),
+      pythonRoot: path.posix.join(storageRoot, "python"),
+      cacheRoot: path.posix.join(cacheRoot, "uv"),
+      tempRoot: path.posix.join(cacheRoot, "temp", "engine-installer"),
     };
   }
   const storageRoot = path.join(userDataDirectory, "engine");

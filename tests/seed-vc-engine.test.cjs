@@ -363,7 +363,7 @@ test("Seed-VC worker starts in isolated Python with injection variables removed"
     OPENAI_API_KEY: "secret",
     HF_TOKEN: "secret",
     AWS_SECRET_ACCESS_KEY: "secret",
-  }, "/private/runtime");
+  }, "/private/runtime", "linux");
   assert.equal(sanitized.PATH, "/usr/bin:/bin:/usr/sbin:/sbin");
   assert.equal(sanitized.PYTHONUNBUFFERED, "1");
   assert.equal(sanitized.PYTHONNOUSERSITE, "1");

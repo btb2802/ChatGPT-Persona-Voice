@@ -363,7 +363,7 @@ test("installer environment rejects Python, package-index, uv, loader, and Huggi
     HTTPS_PROXY: "https://attacker.invalid",
     OPENAI_API_KEY: "secret",
     DYLD_INSERT_LIBRARIES: "/tmp/injected.dylib",
-  });
+  }, "linux");
   assert.equal(environment.PATH, "/usr/bin:/bin:/usr/sbin:/sbin");
   assert.equal(environment.PYTHONPATH, undefined);
   assert.equal(environment.PIP_INDEX_URL, undefined);

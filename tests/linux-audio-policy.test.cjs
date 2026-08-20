@@ -56,7 +56,9 @@ test("Linux policy lifecycle installs owned files and persists one-time reload p
     assert.equal(installed.installed, true);
     assert.equal(installed.reloadRequired, true);
     assert.equal(installed.files.length, 3);
-    for (const file of installed.files) assert.equal(fs.statSync(file.path).mode & 0o777, 0o600);
+    if (process.platform !== "win32") {
+      for (const file of installed.files) assert.equal(fs.statSync(file.path).mode & 0o777, 0o600);
+    }
 
     const activated = installPolicy({
       ...options,
