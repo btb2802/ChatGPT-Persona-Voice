@@ -95,17 +95,6 @@
       "termsUrl": "https://316soramegu.wixsite.com/sayo-official/guideline"
     },
     {
-      "id": "voicevox-nurse-robo-type-t-normal",
-      "name": "Nurse Robo Type T",
-      "nativeName": "ナースロボ＿タイプＴ",
-      "description": "Calm, reserved voice",
-      "locale": "ja-JP",
-      "reference": "references/voicevox-nurse-robo-type-t-normal.wav",
-      "referenceSha256": "8bb75561202d45d720e455a6a5f71d784faf51d605a4d739987655adc5279c72",
-      "requiredCredit": "VOICEVOX:ナースロボ＿タイプＴ",
-      "termsUrl": "https://www.krnr.top/rules"
-    },
-    {
       "id": "voicevox-haruka-nana-normal",
       "name": "Haruka Nana",
       "nativeName": "春歌ナナ",

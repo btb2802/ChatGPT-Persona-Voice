@@ -4,7 +4,7 @@ const assert = require("node:assert/strict");
 const test = require("node:test");
 const { createRelayPowerController } = require("../electron/relay-power.cjs");
 
-test("relay power controller prevents suspension once and releases it on stop", () => {
+test("relay power controller acquires once, releases once, and fails closed", () => {
   const started = new Set();
   const calls = [];
   const controller = createRelayPowerController({
@@ -30,16 +30,13 @@ test("relay power controller prevents suspension once and releases it on stop", 
     ["start", "prevent-app-suspension"],
     ["stop", 17],
   ]);
-});
-
-test("relay power controller fails closed when Electron does not start the assertion", () => {
   const stopped = [];
-  const controller = createRelayPowerController({
+  const rejectedController = createRelayPowerController({
     start: () => 21,
     isStarted: () => false,
     stop: (id) => { stopped.push(id); return true; },
   });
-  assert.throws(() => controller.start(), /Could not prevent voice relay suspension/);
+  assert.throws(() => rejectedController.start(), /Could not prevent voice relay suspension/);
   assert.deepEqual(stopped, [21]);
-  assert.equal(controller.active, false);
+  assert.equal(rejectedController.active, false);
 });

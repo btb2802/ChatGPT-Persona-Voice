@@ -35,7 +35,7 @@ function placeholders(value) {
     .sort();
 }
 
-test("English, Japanese, and Simplified Chinese expose one complete message keyset", () => {
+test("locales expose one complete placeholder-safe keyset with explicit fallback-free selection", () => {
   const flattened = Object.fromEntries(
     Object.entries(locales).map(([locale, catalog]) => [locale, flatten(catalog)]),
   );
@@ -57,9 +57,6 @@ test("English, Japanese, and Simplified Chinese expose one complete message keys
       );
     }
   }
-});
-
-test("locale selection is explicit, starts in English, and message lookup has no fallback", () => {
   const i18n = fs.readFileSync(path.join(root, "src", "i18n.tsx"), "utf8");
   const app = fs.readFileSync(path.join(root, "src", "App.tsx"), "utf8");
   const settings = fs.readFileSync(

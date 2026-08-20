@@ -83,10 +83,13 @@ function smokeAtomicSwap(executable) {
 }
 
 function testNative(platform = process.platform) {
-  if (platform !== "darwin") {
-    console.log(`No native helper self-test is available on ${platform}.`);
-    return;
+  if (platform === "linux") {
+    return require("./linux-test-native.cjs").testLinuxNative(platform);
   }
+  if (platform === "win32") {
+    return require("./windows-test-native.cjs").testWindowsNative({ platform });
+  }
+  if (platform !== "darwin") throw new Error(`Native audio helper tests do not support ${platform}`);
   const capture = path.join(PROJECT_ROOT, "native/bin/darwin/cpv-audio-capture");
   const output = path.join(PROJECT_ROOT, "native/bin/darwin/cpv-audio-output");
   const atomicSwap = path.join(PROJECT_ROOT, "native/bin/darwin/cpv-atomic-swap");

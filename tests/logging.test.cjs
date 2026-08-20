@@ -13,7 +13,7 @@ function temporaryDirectory(t) {
   return directory;
 }
 
-test("logger rotates bounded private JSONL archives", (t) => {
+test("logger enforces bounded private JSONL records and rotation", (t) => {
   const directory = temporaryDirectory(t);
   const filePath = path.join(directory, "launcher.jsonl");
   const published = [];
@@ -34,15 +34,12 @@ test("logger rotates bounded private JSONL archives", (t) => {
     assert.ok(records.every((record) => record.level === "info" && record.event === "test.record"));
     if (process.platform !== "win32") assert.equal(fs.statSync(candidate).mode & 0o077, 0);
   }
-});
-
-test("logger rejects unbounded rotation options and records", (t) => {
-  const filePath = path.join(temporaryDirectory(t), "launcher.jsonl");
-  assert.throws(() => createLogger(filePath, undefined, { maxBytes: 0 }), /positive integer/);
-  assert.throws(() => createLogger(filePath, undefined, { maxArchives: 21 }), /between 0 and 20/);
+  const rejectedFilePath = path.join(temporaryDirectory(t), "launcher.jsonl");
+  assert.throws(() => createLogger(rejectedFilePath, undefined, { maxBytes: 0 }), /positive integer/);
+  assert.throws(() => createLogger(rejectedFilePath, undefined, { maxArchives: 21 }), /between 0 and 20/);
   assert.throws(
-    () => appendBoundedLine(filePath, "oversized\n", { maxBytes: 4, maxArchives: 1 }),
+    () => appendBoundedLine(rejectedFilePath, "oversized\n", { maxBytes: 4, maxArchives: 1 }),
     /exceeds the configured file bound/,
   );
-  assert.equal(fs.existsSync(filePath), false);
+  assert.equal(fs.existsSync(rejectedFilePath), false);
 });

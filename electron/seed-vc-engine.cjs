@@ -31,25 +31,80 @@ const RESPONSE_TYPES = Object.freeze({
   shutdown: "shutdown",
 });
 
+const SEED_VC_RUNTIME_PROFILES = Object.freeze({
+  "darwin-arm64": Object.freeze({
+    id: "darwin-arm64-mps",
+    platform: "darwin",
+    arch: "arm64",
+    device: "mps",
+    deviceLabel: "Apple MPS",
+    backend: "mps",
+    requirementsFile: "requirements-macos-arm64.lock.txt",
+    torchBackend: null,
+    estimatedInstalledBytes: 2.5 * 1024 ** 3,
+    minimumFreeBytes: 6 * 1024 ** 3,
+  }),
+  "win32-x64": Object.freeze({
+    id: "windows-x64-cuda130",
+    platform: "win32",
+    arch: "x64",
+    device: "cuda",
+    deviceLabel: "NVIDIA CUDA",
+    backend: "cu130",
+    requirementsFile: "requirements-windows-x64-cuda.lock.txt",
+    torchBackend: "cu130",
+    estimatedInstalledBytes: 9 * 1024 ** 3,
+    minimumFreeBytes: 15 * 1024 ** 3,
+  }),
+  "linux-x64": Object.freeze({
+    id: "linux-x64-cuda130",
+    platform: "linux",
+    arch: "x64",
+    device: "cuda",
+    deviceLabel: "NVIDIA CUDA",
+    backend: "cu130",
+    requirementsFile: "requirements-linux-x64-cuda.lock.txt",
+    torchBackend: "cu130",
+    estimatedInstalledBytes: 11 * 1024 ** 3,
+    minimumFreeBytes: 15 * 1024 ** 3,
+  }),
+});
+
+function resolveSeedVcRuntimeProfile(platform = process.platform, arch = process.arch) {
+  return SEED_VC_RUNTIME_PROFILES[`${platform}-${arch}`] || null;
+}
+
+function pythonPathForRuntime(runtimeRoot, platform = process.platform) {
+  const pathApi = platform === "win32" ? path.win32 : path;
+  return platform === "win32"
+    ? pathApi.join(runtimeRoot, ".venv", "Scripts", "python.exe")
+    : pathApi.join(runtimeRoot, ".venv", "bin", "python");
+}
+
 function resolveSeedVcPaths({
   isPackaged = false,
   resourcesPath = process.resourcesPath,
   projectRoot = path.join(__dirname, ".."),
   runtimeRoot = path.join(projectRoot, "runtime", "seed-vc"),
+  platform = process.platform,
+  arch = process.arch,
 } = {}) {
+  const profile = resolveSeedVcRuntimeProfile(platform, arch);
   const assetsRoot = isPackaged ? resourcesPath : projectRoot;
   const engineRoot = path.join(assetsRoot, "engine", "seed-vc");
   const seedRoot = path.join(assetsRoot, "engine", "vendor", "seed-vc");
-  const venvDirectory = process.platform === "win32" ? "Scripts" : "bin";
-  const pythonName = process.platform === "win32" ? "python.exe" : "python";
   return {
     packaged: isPackaged,
+    profile,
     engineRoot,
     seedRoot,
     runtimeRoot,
-    pythonPath: path.join(runtimeRoot, ".venv", venvDirectory, pythonName),
+    pythonPath: pythonPathForRuntime(runtimeRoot, platform),
     workerPath: path.join(engineRoot, "worker.py"),
     modelLockPath: path.join(engineRoot, "model-lock.json"),
+    requirementsPath: profile
+      ? path.join(engineRoot, profile.requirementsFile)
+      : null,
     installManifestPath: path.join(runtimeRoot, "install-manifest.json"),
   };
 }
@@ -87,9 +142,24 @@ function throwIfAborted(signal) {
   if (signal?.aborted) throw abortReason(signal);
 }
 
-function buildWorkerEnvironment(_environment = process.env, runtimeRoot = null) {
+function isolatedSystemPath(platform, environment) {
+  if (platform !== "win32") return "/usr/bin:/bin:/usr/sbin:/sbin";
+  const systemRoot = environment.SYSTEMROOT || environment.WINDIR;
+  if (!systemRoot) return "";
+  return [
+    path.win32.join(systemRoot, "System32"),
+    systemRoot,
+    path.win32.join(systemRoot, "System32", "Wbem"),
+  ].join(";");
+}
+
+function buildWorkerEnvironment(
+  environment = process.env,
+  runtimeRoot = null,
+  platform = process.platform,
+) {
   const value = {
-    PATH: "/usr/bin:/bin:/usr/sbin:/sbin",
+    PATH: isolatedSystemPath(platform, environment),
     LANG: "C",
     LC_ALL: "C",
     PYTHONUNBUFFERED: "1",
@@ -98,6 +168,11 @@ function buildWorkerEnvironment(_environment = process.env, runtimeRoot = null) 
     HF_HUB_DISABLE_TELEMETRY: "1",
     HF_HUB_DISABLE_IMPLICIT_TOKEN: "1",
   };
+  if (platform === "win32") {
+    for (const key of ["SYSTEMROOT", "WINDIR", "COMSPEC", "PATHEXT"]) {
+      if (typeof environment[key] === "string" && environment[key]) value[key] = environment[key];
+    }
+  }
   if (typeof runtimeRoot === "string" && path.isAbsolute(runtimeRoot)) {
     value.HOME = runtimeRoot;
     value.XDG_CACHE_HOME = path.join(runtimeRoot, ".cache");
@@ -109,11 +184,19 @@ function inspectSeedVcRuntime(paths, {
   exists = fs.existsSync,
   readFile = fs.readFileSync,
 } = {}) {
+  if (!paths.profile || !paths.requirementsPath) {
+    return {
+      ready: false,
+      code: "seed_vc_platform_unavailable",
+      detail: "No qualified realtime Seed-VC profile exists for this platform",
+    };
+  }
   const required = [
     [paths.pythonPath, "Python runtime"],
     [paths.workerPath, "Seed-VC worker"],
     [path.join(paths.seedRoot, "real-time-gui.py"), "Seed-VC source"],
     [paths.modelLockPath, "Model lock"],
+    [paths.requirementsPath, "Runtime requirements lock"],
     [paths.installManifestPath, "Model installation manifest"],
   ];
   const missing = required.find(([filePath]) => !exists(filePath));
@@ -137,8 +220,13 @@ function inspectSeedVcRuntime(paths, {
     const lockSha256 = crypto.createHash("sha256")
       .update(readFile(paths.modelLockPath))
       .digest("hex");
-    if (lock.schemaVersion !== 1 || installed.schemaVersion !== 1 ||
+    const requirementsSha256 = crypto.createHash("sha256")
+      .update(readFile(paths.requirementsPath))
+      .digest("hex");
+    if (lock.schemaVersion !== 1 || installed.schemaVersion !== 2 ||
         installed.seedVcCommit !== lock.seedVcCommit || installed.python !== lock.python ||
+        installed.runtimeProfile !== paths.profile.id ||
+        installed.requirementsSha256 !== requirementsSha256 ||
         expectedModelFiles < 1 || !Array.isArray(installed.files) ||
         installed.files.length !== expectedModelFiles ||
         installed.modelLockSha256 !== lockSha256) {
@@ -154,7 +242,7 @@ function inspectSeedVcRuntime(paths, {
   return {
     ready: true,
     code: "ready",
-    detail: "The locked Seed-VC engine package is installed",
+    detail: `The locked Seed-VC ${paths.profile.deviceLabel} engine package is installed`,
   };
 }
 
@@ -220,8 +308,12 @@ class SeedVcEngine {
       ? this.worker.ready
       : null;
     const finite = (value) => Number.isFinite(value) ? value : null;
+    const runtimeProfile = resolveSeedVcRuntimeProfile(this.platform, this.arch);
     return {
       profile: "seed-vc-tiny-realtime",
+      runtimeProfile: runtimeProfile?.id || null,
+      device: workerReady?.device === runtimeProfile?.device ? workerReady.device : null,
+      backend: workerReady?.backend === runtimeProfile?.backend ? workerReady.backend : null,
       workerState: workerReady ? "ready" : this.startInFlight ? "loading" : "stopped",
       active: this.activeSession?.active === true,
       voiceId: workerReady ? this.worker.voice.id : null,
@@ -240,6 +332,11 @@ class SeedVcEngine {
       mpsCurrentAllocatedBytes: finite(this.lastMetrics?.mpsCurrentAllocatedBytes),
       mpsDriverAllocatedBytes: finite(this.lastMetrics?.mpsDriverAllocatedBytes),
       mpsRecommendedMaxBytes: finite(this.lastMetrics?.mpsRecommendedMaxBytes),
+      cudaAllocatedBytes: finite(this.lastMetrics?.cudaAllocatedBytes),
+      cudaReservedBytes: finite(this.lastMetrics?.cudaReservedBytes),
+      cudaDeviceName: typeof workerReady?.cudaDeviceName === "string"
+        ? workerReady.cudaDeviceName
+        : null,
     };
   }
 
@@ -253,11 +350,21 @@ class SeedVcEngine {
   }
 
   installationReadiness(settings) {
-    if (this.platform !== "darwin" || this.arch !== "arm64") {
+    const profile = resolveSeedVcRuntimeProfile(this.platform, this.arch);
+    if (!profile) {
       return {
         ready: false,
         code: "seed_vc_platform_unavailable",
-        detail: "The installed Seed-VC profile currently supports Apple Silicon macOS",
+        detail: "Realtime Seed-VC requires Apple Silicon or x64 Windows/Linux with NVIDIA CUDA; CPU inference is not a qualified realtime profile",
+      };
+    }
+    if (this.paths.profile?.id !== profile.id ||
+        typeof this.paths.requirementsPath !== "string" ||
+        path.basename(this.paths.requirementsPath) !== profile.requirementsFile) {
+      return {
+        ready: false,
+        code: "seed_vc_runtime_invalid",
+        detail: `The bundled Seed-VC ${profile.deviceLabel} profile is inconsistent`,
       };
     }
     let voice;
@@ -276,7 +383,7 @@ class SeedVcEngine {
         detail: "Selected voice metadata does not match the installed catalog",
       };
     }
-    const runtime = inspectSeedVcRuntime(this.paths, {
+    const runtime = inspectSeedVcRuntime({ ...this.paths, profile }, {
       exists: this.exists,
       readFile: this.readFile,
     });
@@ -289,7 +396,7 @@ class SeedVcEngine {
     return {
       ready: true,
       code: "ready",
-      detail: `${voice.name} · Seed-VC tiny · ${ENGINE_STEPS} steps · Apple MPS`,
+      detail: `${voice.name} · Seed-VC tiny · ${ENGINE_STEPS} steps · ${profile.deviceLabel}`,
     };
   }
 
@@ -298,7 +405,9 @@ class SeedVcEngine {
   }
 
   workerKey(voice, sourceFormat) {
+    const profile = resolveSeedVcRuntimeProfile(this.platform, this.arch);
     return [
+      profile?.id || "unsupported",
       voice.id,
       sourceFormat.sampleRate,
       sourceFormat.channels,
@@ -323,6 +432,7 @@ class SeedVcEngine {
       const expectedSourceBlockFrames = Math.round(
         worker.sourceFormat.sampleRate * BLOCK_MS / 1_000,
       );
+      const profile = resolveSeedVcRuntimeProfile(this.platform, this.arch);
       if (header.protocolVersion !== 1 || header.engine !== "seed-vc-tiny-realtime" ||
           header.sampleRate !== OUTPUT_FORMAT.sampleRate || header.channels !== OUTPUT_FORMAT.channels ||
           header.sampleFormat !== OUTPUT_FORMAT.sampleFormat || header.steps !== ENGINE_STEPS ||
@@ -330,6 +440,13 @@ class SeedVcEngine {
           header.styleSeconds !== this.styleSeconds || !Number.isFinite(header.styleSecondsUsed) ||
           header.styleSecondsUsed <= 0 || header.styleSecondsUsed > this.styleSeconds ||
           header.styleDevice !== STYLE_DEVICE ||
+          header.runtimeProfile !== profile?.id || header.device !== profile?.device ||
+          header.backend !== profile?.backend ||
+          (profile?.device === "cuda" && (
+            typeof header.cudaDeviceName !== "string" || !header.cudaDeviceName ||
+            !Array.isArray(header.cudaCapability) || header.cudaCapability.length !== 2 ||
+            !header.cudaCapability.every(Number.isInteger)
+          )) ||
           header.sourceBlockFrames !== expectedSourceBlockFrames ||
           header.outputBlockFrames !== OUTPUT_BLOCK_FRAMES) {
         throw new Error("Seed-VC worker readiness does not match the prepared engine profile");
@@ -396,11 +513,20 @@ class SeedVcEngine {
     this.lastInferenceMs = null;
     this.lastMetrics = null;
     this.publishDiagnostics();
+    const profile = resolveSeedVcRuntimeProfile(this.platform, this.arch);
+    if (!profile || this.paths.profile?.id !== profile.id ||
+        typeof this.paths.requirementsPath !== "string" ||
+        path.basename(this.paths.requirementsPath) !== profile.requirementsFile) {
+      throw new Error("No qualified realtime Seed-VC profile exists for this platform");
+    }
     const key = this.workerKey(voice, sourceFormat);
     const child = this.spawnProcess(this.paths.pythonPath, [
       "-I", "-u", this.paths.workerPath,
       "--seed-root", this.paths.seedRoot,
       "--runtime-root", this.paths.runtimeRoot,
+      "--runtime-profile", profile.id,
+      "--requirements-lock", this.paths.requirementsPath,
+      "--device", profile.device,
       "--voice", voice.referencePath,
       "--voice-sha256", voice.referenceSha256,
       "--source-rate", String(sourceFormat.sampleRate),
@@ -412,7 +538,7 @@ class SeedVcEngine {
     ], {
       stdio: ["pipe", "pipe", "pipe"],
       windowsHide: true,
-      env: buildWorkerEnvironment(process.env, this.paths.runtimeRoot),
+      env: buildWorkerEnvironment(process.env, this.paths.runtimeRoot, this.platform),
     });
     let resolveReady;
     let rejectReady;
@@ -677,6 +803,8 @@ class SeedVcEngine {
         mpsCurrentAllocatedBytes: metadata.mpsCurrentAllocatedBytes ?? null,
         mpsDriverAllocatedBytes: metadata.mpsDriverAllocatedBytes ?? null,
         mpsRecommendedMaxBytes: metadata.mpsRecommendedMaxBytes ?? null,
+        cudaAllocatedBytes: metadata.cudaAllocatedBytes ?? null,
+        cudaReservedBytes: metadata.cudaReservedBytes ?? null,
       };
       this.publishDiagnostics();
       session.convertedBlocks += 1;
@@ -806,6 +934,7 @@ module.exports = {
   OUTPUT_BLOCK_FRAMES,
   OUTPUT_FRAME_MS,
   PROMPT_SECONDS,
+  SEED_VC_RUNTIME_PROFILES,
   STYLE_SECONDS,
   STYLE_DEVICE,
   STARTUP_DISCARD_MS,
@@ -813,6 +942,8 @@ module.exports = {
   SeedVcEngine,
   buildWorkerEnvironment,
   inspectSeedVcRuntime,
+  pythonPathForRuntime,
   resolveSeedVcPaths,
+  resolveSeedVcRuntimeProfile,
   withTimeout,
 };

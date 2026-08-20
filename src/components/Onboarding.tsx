@@ -9,12 +9,14 @@ import type { UiLocale } from "../i18n";
 import type {
   LauncherSnapshot,
   OnboardingState,
+  PlatformAudioSetupState,
   Settings,
   VoiceBridge,
 } from "../types";
 import { errorMessage, formatBytes } from "../lib/presentation";
 
-type OnboardingStep = "language" | "support" | "engine";
+type OnboardingStep = "language" | "support" | "platform-audio" | "engine";
+type PlatformAudioAction = "refresh" | "install" | "activate";
 
 export function Onboarding({
   bridge,
@@ -30,8 +32,20 @@ export function Onboarding({
   const [step, setStep] = useState<OnboardingStep>(() =>
     snapshot.settings.uiLocale === null ? "language" : "support",
   );
+  const [platformAudioSetup, setPlatformAudioSetup] =
+    useState<PlatformAudioSetupState>(snapshot.platformAudioSetup);
+  const [audioStepIncluded, setAudioStepIncluded] = useState(false);
   const [busy, setBusy] = useState<
-    "locale" | "github" | "x" | "install" | "cancel" | "complete" | null
+    | "locale"
+    | "github"
+    | "x"
+    | "audio-refresh"
+    | "audio-install"
+    | "audio-activate"
+    | "install"
+    | "cancel"
+    | "complete"
+    | null
   >(null);
   const [error, setError] = useState<string | null>(null);
   const { onboarding } = snapshot;
@@ -41,6 +55,10 @@ export function Onboarding({
   useEffect(() => {
     document.documentElement.lang = locale ?? "en";
   }, [locale]);
+
+  useEffect(() => {
+    setPlatformAudioSetup(snapshot.platformAudioSetup);
+  }, [snapshot.platformAudioSetup]);
 
   async function chooseLocale(nextLocale: UiLocale) {
     setBusy("locale");
@@ -60,6 +78,35 @@ export function Onboarding({
     setError(null);
     try {
       onChange(await bridge.openSocial(target));
+    } catch (cause) {
+      setError(errorMessage(cause));
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  function continueFromSupport() {
+    if (
+      (snapshot.app.platform === "linux" || snapshot.app.platform === "win32") &&
+      platformAudioSetup.status !== "ready"
+    ) {
+      setAudioStepIncluded(true);
+      setStep("platform-audio");
+      return;
+    }
+    setStep("engine");
+  }
+
+  async function runPlatformAudioAction(action: PlatformAudioAction) {
+    setBusy(`audio-${action}`);
+    setError(null);
+    try {
+      const result = action === "install"
+        ? await bridge.installPlatformAudioSetup()
+        : action === "activate"
+          ? await bridge.activatePlatformAudioSetup()
+          : await bridge.refreshPlatformAudioSetup();
+      setPlatformAudioSetup(result);
     } catch (cause) {
       setError(errorMessage(cause));
     } finally {
@@ -104,12 +151,36 @@ export function Onboarding({
   }
 
   const engine = snapshot.engineInstallation;
+  const engineDevice = snapshot.app.platform === "darwin" ? "Apple MPS" : "NVIDIA CUDA";
   const canInstall = engine.status === "idle" || engine.status === "error";
+  const isLinux = snapshot.app.platform === "linux";
+  const isWindows = snapshot.app.platform === "win32";
+  const needsPlatformAudioSetup =
+    (isLinux || isWindows) && platformAudioSetup.status !== "ready";
+  const countedAudioStep =
+    audioStepIncluded ||
+    step === "platform-audio" ||
+    (step === "support" && needsPlatformAudioSetup);
+  const platformAudioStatusLabel = messages === null
+    ? ""
+    : {
+        ready: messages.platformAudio.statusReady,
+        "action-required": messages.platformAudio.statusActionRequired,
+        installing: messages.platformAudio.statusInstalling,
+        error: messages.platformAudio.statusError,
+        unavailable: messages.platformAudio.statusUnavailable,
+      }[platformAudioSetup.status];
   const stepLabel = step === "language"
-    ? "Step 0"
+    ? "Language"
     : step === "support"
-      ? messages!.onboarding.supportStep
-      : messages!.onboarding.engineStep;
+      ? countedAudioStep
+        ? messages!.onboarding.supportStepWithAudio
+        : messages!.onboarding.supportStep
+      : step === "platform-audio"
+        ? messages!.onboarding.platformAudioStep
+        : countedAudioStep
+          ? messages!.onboarding.engineStepWithAudio
+          : messages!.onboarding.engineStep;
 
   return (
     <main className="onboarding-screen" data-platform={snapshot.app.platform}>
@@ -188,6 +259,57 @@ export function Onboarding({
               {messages!.onboarding.socialPrivacy}
             </small>
           </>
+        ) : step === "platform-audio" ? (
+          <>
+            <span className="onboarding-kicker">{messages!.platformAudio.kicker}</span>
+            <h1>
+              {isLinux
+                ? messages!.platformAudio.linuxTitle
+                : messages!.platformAudio.windowsTitle}
+            </h1>
+            <p>
+              {isLinux
+                ? messages!.platformAudio.linuxBody
+                : messages!.platformAudio.windowsBody}
+            </p>
+
+            <div
+              aria-live="polite"
+              className={`onboarding-engine platform-audio-card is-${platformAudioSetup.status}`}
+            >
+              <span className="onboarding-engine-mark"><Icon name="headphones" /></span>
+              <div className="onboarding-engine-copy">
+                <strong>
+                  {isLinux
+                    ? messages!.platformAudio.linuxRouteName
+                    : messages!.platformAudio.windowsSinkName}
+                </strong>
+                <p>{platformAudioSetup.detail}</p>
+                <small>{platformAudioStatusLabel} · {platformAudioSetup.code}</small>
+              </div>
+              {platformAudioSetup.status === "ready" ? <Icon name="check" /> : null}
+            </div>
+
+            <div className="onboarding-engine-facts platform-audio-facts">
+              {isLinux ? (
+                <>
+                  <span><Icon name="shield" /> {messages!.platformAudio.linuxOwnedFact}</span>
+                  <span><Icon name="refresh" /> {messages!.platformAudio.linuxRestartFact}</span>
+                </>
+              ) : (
+                <>
+                  <span><Icon name="lock" /> {messages!.platformAudio.windowsInstallerFact}</span>
+                  {platformAudioSetup.requiresRouteAssignment ? (
+                    <>
+                      <span><Icon name="app" /> {messages!.platformAudio.windowsOpenAppStep}</span>
+                      <span><Icon name="settings" /> {messages!.platformAudio.windowsAssignStep}</span>
+                      <span><Icon name="check" /> {messages!.platformAudio.windowsVerifyStep}</span>
+                    </>
+                  ) : null}
+                </>
+              )}
+            </div>
+          </>
         ) : (
           <>
             <span className="onboarding-kicker">{messages!.onboarding.engineKicker}</span>
@@ -197,7 +319,7 @@ export function Onboarding({
             <div className={`onboarding-engine is-${engine.status}`}>
               <span className="onboarding-engine-mark"><Icon name="sparkles" /></span>
               <div className="onboarding-engine-copy">
-                <strong>Seed-VC tiny · Apple MPS</strong>
+                <strong>Seed-VC tiny · {engineDevice}</strong>
                 <p>{engine.detail}</p>
                 <small>
                   {engine.status === "ready"
@@ -247,11 +369,74 @@ export function Onboarding({
               <button
                 className="button-primary"
                 disabled={busy !== null}
-                onClick={() => setStep("engine")}
+                onClick={continueFromSupport}
                 type="button"
               >
                 {messages!.common.continue}
               </button>
+            </>
+          ) : step === "platform-audio" ? (
+            <>
+              <span>
+                {platformAudioSetup.status === "ready"
+                  ? messages!.platformAudio.readyHint
+                  : platformAudioSetup.status === "installing"
+                    ? platformAudioSetup.detail
+                    : messages!.platformAudio.setupLaterHint}
+              </span>
+              <div className="onboarding-footer-actions platform-audio-footer-actions">
+                {platformAudioSetup.status === "ready" ? (
+                  <button
+                    className="button-primary"
+                    disabled={busy !== null}
+                    onClick={() => setStep("engine")}
+                    type="button"
+                  >
+                    {messages!.platformAudio.continueToEngine}
+                  </button>
+                ) : (
+                  <>
+                    {platformAudioSetup.status !== "installing" ? (
+                      <button
+                        className="button-secondary"
+                        disabled={busy !== null}
+                        onClick={() => setStep("engine")}
+                        type="button"
+                      >
+                        {messages!.platformAudio.setUpLater}
+                      </button>
+                    ) : null}
+                    <button
+                      className="button-primary"
+                      disabled={busy !== null || platformAudioSetup.status === "installing"}
+                      onClick={() => void runPlatformAudioAction(
+                        isLinux && platformAudioSetup.canInstall
+                          ? "install"
+                          : isWindows && platformAudioSetup.canActivate
+                            ? "activate"
+                            : "refresh",
+                      )}
+                      type="button"
+                    >
+                      {platformAudioSetup.status === "installing"
+                        ? isWindows
+                          ? messages!.platformAudio.verifyingRoute
+                          : messages!.platformAudio.installingRoute
+                        : busy === "audio-install"
+                          ? messages!.platformAudio.installingRoute
+                        : busy === "audio-activate"
+                          ? messages!.platformAudio.verifyingRoute
+                          : busy === "audio-refresh"
+                            ? messages!.platformAudio.checking
+                            : isLinux && platformAudioSetup.canInstall
+                              ? messages!.platformAudio.installRoute
+                              : isWindows && platformAudioSetup.canActivate
+                                ? messages!.platformAudio.verifyRoute
+                                : messages!.platformAudio.checkAgain}
+                    </button>
+                  </>
+                )}
+              </div>
             </>
           ) : (
             <>

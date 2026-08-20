@@ -9,7 +9,13 @@ const {
   PipelineStartupCancelledError,
 } = require("../electron/pipeline-runtime.cjs");
 
-function adapters({ blocked = null, armed = true, initialRouteState = "engaged", convertError = null, log = [] } = {}) {
+function adapters({
+  blocked = null,
+  armed = true,
+  initialRouteState = "engaged",
+  convertError = null,
+  log = [],
+} = {}) {
   let onFrame = null;
   let onStatus = null;
   let onRouteError = null;
@@ -37,7 +43,11 @@ function adapters({ blocked = null, armed = true, initialRouteState = "engaged",
     value: {
       source: {
         probe: probe("source"),
-        describe: async () => ({ sampleRate: 48_000, channels: 2, sampleFormat: "f32le" }),
+        describe: async () => ({
+          sampleRate: 48_000,
+          channels: 2,
+          sampleFormat: "f32le",
+        }),
         open: async (_config, callback) => {
           log.push("source.open");
           onFrame = callback;
@@ -63,7 +73,9 @@ function adapters({ blocked = null, armed = true, initialRouteState = "engaged",
           });
           return {
             armed,
-            get originalSuppressed() { return routeState === "engaged"; },
+            get originalSuppressed() {
+              return routeState === "engaged";
+            },
             format: { sampleRate: 48_000, channels: 2, sampleFormat: "f32le" },
             close: async () => {
               log.push("suppression.close");
@@ -76,10 +88,18 @@ function adapters({ blocked = null, armed = true, initialRouteState = "engaged",
       engine: {
         probe: probe("engine"),
         prepare: async (_config, sourceFormat) => {
-          assert.deepEqual(sourceFormat, { sampleRate: 48_000, channels: 2, sampleFormat: "f32le" });
+          assert.deepEqual(sourceFormat, {
+            sampleRate: 48_000,
+            channels: 2,
+            sampleFormat: "f32le",
+          });
           log.push("engine.prepare");
           return {
-            outputFormat: { sampleRate: 24_000, channels: 1, sampleFormat: "f32le" },
+            outputFormat: {
+              sampleRate: 24_000,
+              channels: 1,
+              sampleFormat: "f32le",
+            },
             convert: async (frame) => {
               log.push("engine.convert");
               if (convertError) throw convertError;
@@ -93,19 +113,31 @@ function adapters({ blocked = null, armed = true, initialRouteState = "engaged",
                 converted: true,
               };
             },
-            reset: async () => { log.push("engine.reset"); },
-            close: async () => { log.push("engine.close"); },
+            reset: async () => {
+              log.push("engine.reset");
+            },
+            close: async () => {
+              log.push("engine.close");
+            },
           };
         },
       },
       output: {
         probe: probe("output"),
         prepare: async (_config, format) => {
-          assert.deepEqual(format, { sampleRate: 24_000, channels: 1, sampleFormat: "f32le" });
+          assert.deepEqual(format, {
+            sampleRate: 24_000,
+            channels: 1,
+            sampleFormat: "f32le",
+          });
           log.push("output.prepare");
           return {
-            write: async (frame) => { log.push(`output.write:${frame.converted}`); },
-            close: async () => { log.push("output.close"); },
+            write: async (frame) => {
+              log.push(`output.write:${frame.converted}`);
+            },
+            close: async () => {
+              log.push("output.close");
+            },
           };
         },
       },
@@ -126,7 +158,9 @@ function sourceFrame(sequence = 1, samplesPerChannel = 480) {
 
 function deferred() {
   let resolve;
-  const promise = new Promise((next) => { resolve = next; });
+  const promise = new Promise((next) => {
+    resolve = next;
+  });
   return { promise, resolve };
 }
 
@@ -158,7 +192,12 @@ test("Stop cancels a readiness startup, rejects a concurrent restart, and leaves
     /Cannot start the relay while it is stopping/,
   );
 
-  sourceProbe.resolve({ label: "source", ready: true, code: "ready", detail: "source ready" });
+  sourceProbe.resolve({
+    label: "source",
+    ready: true,
+    code: "ready",
+    detail: "source ready",
+  });
   await assert.rejects(firstStart, PipelineStartupCancelledError);
   const stopped = await stop;
 
@@ -214,7 +253,9 @@ test("Stop aborts engine loading instead of waiting for its startup timeout", as
     observedSignal = signal;
     enteredPrepare.resolve();
     await new Promise((_, reject) => {
-      signal.addEventListener("abort", () => reject(signal.reason), { once: true });
+      signal.addEventListener("abort", () => reject(signal.reason), {
+        once: true,
+      });
     });
   };
   const runtime = new PipelineRuntime(fixture.value);
@@ -233,10 +274,22 @@ test("a slower stale readiness probe cannot overwrite a newer result", async () 
   fixture.value.source.probe = async () => {
     sourceProbeCount += 1;
     if (sourceProbeCount === 1) {
-      await new Promise((resolve) => { releaseFirst = resolve; });
-      return { label: "source", ready: false, code: "old", detail: "old blocked result" };
+      await new Promise((resolve) => {
+        releaseFirst = resolve;
+      });
+      return {
+        label: "source",
+        ready: false,
+        code: "old",
+        detail: "old blocked result",
+      };
     }
-    return { label: "source", ready: true, code: "ready", detail: "new ready result" };
+    return {
+      label: "source",
+      ready: true,
+      code: "ready",
+      detail: "new ready result",
+    };
   };
   const runtime = new PipelineRuntime(fixture.value);
   const first = runtime.inspect({ generation: 1 });
@@ -257,7 +310,10 @@ test("readiness inspection does not probe or mutate an active relay", async () =
   await runtime.start({});
   const before = runtime.snapshot();
   let probes = 0;
-  fixture.value.source.probe = async () => { probes += 1; return { ready: false }; };
+  fixture.value.source.probe = async () => {
+    probes += 1;
+    return { ready: false };
+  };
   const inspected = await runtime.inspect({});
   assert.equal(probes, 0);
   assert.deepEqual(inspected.checks, before.checks);
@@ -270,7 +326,12 @@ test("startup warms conversion, arms capture, then opens output only after engag
   const fixture = adapters({ log });
   const runtime = new PipelineRuntime(fixture.value);
   await runtime.start({});
-  assert.deepEqual(log, ["engine.prepare", "suppression.acquire", "source.open", "output.prepare"]);
+  assert.deepEqual(log, [
+    "engine.prepare",
+    "suppression.acquire",
+    "source.open",
+    "output.prepare",
+  ]);
   fixture.emitFrame(sourceFrame());
   await runtime.frameQueue;
   assert.deepEqual(log.slice(-2), ["engine.convert", "output.write:true"]);
@@ -293,7 +354,11 @@ test("armed passthrough does not start playback and can follow repeated voice se
   await runtime.start({});
   assert.equal(runtime.snapshot().state, "armed");
   assert.equal(runtime.snapshot().suppressionHeld, false);
-  assert.deepEqual(log, ["engine.prepare", "suppression.acquire", "source.open"]);
+  assert.deepEqual(log, [
+    "engine.prepare",
+    "suppression.acquire",
+    "source.open",
+  ]);
 
   fixture.emitStatus("engaged");
   await runtime.transitionQueue;
@@ -319,8 +384,10 @@ test("an engine session is re-primed after route engagement and before output op
   const fixture = adapters({ initialRouteState: "armed", log });
   const prepare = fixture.value.engine.prepare;
   fixture.value.engine.prepare = async (...args) => ({
-    ...await prepare(...args),
-    prime: async () => { log.push("engine.prime"); },
+    ...(await prepare(...args)),
+    prime: async () => {
+      log.push("engine.prime");
+    },
   });
   const runtime = new PipelineRuntime(fixture.value);
 
@@ -355,12 +422,16 @@ test("a voice session that ends during output startup never reaches running", as
   const log = [];
   const fixture = adapters({ initialRouteState: "armed", log });
   let finishOutput;
-  fixture.value.output.prepare = async () => new Promise((resolve) => {
-    finishOutput = () => resolve({
-      write: async () => {},
-      close: async () => { log.push("output.close"); },
+  fixture.value.output.prepare = async () =>
+    new Promise((resolve) => {
+      finishOutput = () =>
+        resolve({
+          write: async () => {},
+          close: async () => {
+            log.push("output.close");
+          },
+        });
     });
-  });
   const runtime = new PipelineRuntime(fixture.value);
   await runtime.start({});
 
@@ -391,98 +462,105 @@ test("a source that cannot prove safe arming is rolled back and never runs", asy
   ]);
 });
 
-test("conversion faults close processing but hold original suppression until Stop", async () => {
-  const log = [];
-  const fixture = adapters({ convertError: new Error("inference failed"), log });
-  const runtime = new PipelineRuntime(fixture.value);
-  await runtime.start({});
-  fixture.emitFrame(sourceFrame());
-  await runtime.frameQueue;
-  assert.equal(runtime.snapshot().state, "faulted");
-  assert.match(runtime.snapshot().error, /inference failed/);
-  assert.equal(log.includes("suppression.close"), false);
-  assert.deepEqual(log.slice(-5), [
-    "engine.convert",
-    "source.close",
-    "engine.reset",
-    "output.close",
-    "engine.close",
-  ]);
-  await runtime.stop();
-  assert.equal(log.at(-1), "suppression.close");
-  assert.equal(runtime.snapshot().state, "stopped");
-});
+test("conversion faults retain and publish the latest route-suppression truth", async () => {
+  {
+    const log = [];
+    const fixture = adapters({
+      convertError: new Error("inference failed"),
+      log,
+    });
+    const runtime = new PipelineRuntime(fixture.value);
+    await runtime.start({});
+    fixture.emitFrame(sourceFrame());
+    await runtime.frameQueue;
+    assert.equal(runtime.snapshot().state, "faulted");
+    assert.match(runtime.snapshot().error, /inference failed/);
+    assert.equal(log.includes("suppression.close"), false);
+    assert.deepEqual(log.slice(-5), [
+      "engine.convert",
+      "source.close",
+      "engine.reset",
+      "output.close",
+      "engine.close",
+    ]);
+    await runtime.stop();
+    assert.equal(log.at(-1), "suppression.close");
+    assert.equal(runtime.snapshot().state, "stopped");
+  }
 
-test("route loss after a conversion fault updates the held-suppression truth", async () => {
-  const fixture = adapters({ convertError: new Error("inference failed") });
-  const runtime = new PipelineRuntime(fixture.value);
-  const snapshots = [];
-  runtime.on("changed", (value) => snapshots.push(value));
-  await runtime.start({});
-  fixture.emitFrame(sourceFrame());
-  await runtime.frameQueue;
-  assert.equal(runtime.snapshot().state, "faulted");
-  assert.equal(runtime.snapshot().suppressionHeld, true);
+  {
+    const fixture = adapters({ convertError: new Error("inference failed") });
+    const runtime = new PipelineRuntime(fixture.value);
+    const snapshots = [];
+    runtime.on("changed", (value) => snapshots.push(value));
+    await runtime.start({});
+    fixture.emitFrame(sourceFrame());
+    await runtime.frameQueue;
+    assert.equal(runtime.snapshot().state, "faulted");
+    assert.equal(runtime.snapshot().suppressionHeld, true);
 
-  const routeError = new Error("Capture helper exited; the original route is no longer suppressed");
-  routeError.code = "source_suppression_lost";
-  routeError.suppressionHeld = false;
-  fixture.emitRouteError(routeError);
-  assert.equal(runtime.snapshot().state, "faulted");
-  assert.equal(runtime.snapshot().suppressionHeld, false);
-  assert.match(runtime.snapshot().error, /may now be audible/);
-  assert.equal(snapshots.at(-1).suppressionHeld, false);
-  await runtime.stop();
-});
+    const routeError = new Error(
+      "Capture helper exited; the original route is no longer suppressed",
+    );
+    routeError.code = "source_suppression_lost";
+    routeError.suppressionHeld = false;
+    fixture.emitRouteError(routeError);
+    assert.equal(runtime.snapshot().state, "faulted");
+    assert.equal(runtime.snapshot().suppressionHeld, false);
+    assert.match(runtime.snapshot().error, /may now be audible/);
+    assert.equal(snapshots.at(-1).suppressionHeld, false);
+    await runtime.stop();
+  }
 
-test("normal route restoration after a conversion fault still publishes fresh suppression truth", async () => {
-  const fixture = adapters({ convertError: new Error("inference failed") });
-  const runtime = new PipelineRuntime(fixture.value);
-  const snapshots = [];
-  runtime.on("changed", (value) => snapshots.push(value));
-  await runtime.start({});
-  fixture.emitFrame(sourceFrame());
-  await runtime.frameQueue;
-  assert.equal(runtime.snapshot().suppressionHeld, true);
+  {
+    const fixture = adapters({ convertError: new Error("inference failed") });
+    const runtime = new PipelineRuntime(fixture.value);
+    const snapshots = [];
+    runtime.on("changed", (value) => snapshots.push(value));
+    await runtime.start({});
+    fixture.emitFrame(sourceFrame());
+    await runtime.frameQueue;
+    assert.equal(runtime.snapshot().suppressionHeld, true);
 
-  fixture.emitStatus("armed");
-  assert.equal(runtime.snapshot().state, "faulted");
-  assert.equal(runtime.snapshot().suppressionHeld, false);
-  assert.equal(snapshots.at(-1).suppressionHeld, false);
-  assert.doesNotMatch(runtime.snapshot().error, /may now be audible/);
-  await runtime.stop();
-});
+    fixture.emitStatus("armed");
+    assert.equal(runtime.snapshot().state, "faulted");
+    assert.equal(runtime.snapshot().suppressionHeld, false);
+    assert.equal(snapshots.at(-1).suppressionHeld, false);
+    assert.doesNotMatch(runtime.snapshot().error, /may now be audible/);
+    await runtime.stop();
+  }
 
-test("route loss racing fault cleanup cannot be overwritten by the original inference error", async () => {
-  const fixture = adapters({ convertError: new Error("inference failed") });
-  const resetEntered = deferred();
-  const finishReset = deferred();
-  const originalPrepare = fixture.value.engine.prepare;
-  fixture.value.engine.prepare = async (...args) => {
-    const session = await originalPrepare(...args);
-    return {
-      ...session,
-      reset: async () => {
-        resetEntered.resolve();
-        await finishReset.promise;
-      },
+  {
+    const fixture = adapters({ convertError: new Error("inference failed") });
+    const resetEntered = deferred();
+    const finishReset = deferred();
+    const originalPrepare = fixture.value.engine.prepare;
+    fixture.value.engine.prepare = async (...args) => {
+      const session = await originalPrepare(...args);
+      return {
+        ...session,
+        reset: async () => {
+          resetEntered.resolve();
+          await finishReset.promise;
+        },
+      };
     };
-  };
-  const runtime = new PipelineRuntime(fixture.value);
-  await runtime.start({});
-  fixture.emitFrame(sourceFrame());
-  await resetEntered.promise;
-  const routeError = new Error("capture route disappeared");
-  routeError.suppressionHeld = false;
-  fixture.emitRouteError(routeError);
-  finishReset.resolve();
-  await runtime.frameQueue;
+    const runtime = new PipelineRuntime(fixture.value);
+    await runtime.start({});
+    fixture.emitFrame(sourceFrame());
+    await resetEntered.promise;
+    const routeError = new Error("capture route disappeared");
+    routeError.suppressionHeld = false;
+    fixture.emitRouteError(routeError);
+    finishReset.resolve();
+    await runtime.frameQueue;
 
-  assert.equal(runtime.snapshot().suppressionHeld, false);
-  assert.match(runtime.snapshot().error, /inference failed/);
-  assert.match(runtime.snapshot().error, /capture route disappeared/);
-  assert.match(runtime.snapshot().error, /may now be audible/);
-  await runtime.stop();
+    assert.equal(runtime.snapshot().suppressionHeld, false);
+    assert.match(runtime.snapshot().error, /inference failed/);
+    assert.match(runtime.snapshot().error, /capture route disappeared/);
+    assert.match(runtime.snapshot().error, /may now be audible/);
+    await runtime.stop();
+  }
 });
 
 test("bounded conversion queue faults before unbounded latency can accumulate", async () => {
@@ -490,11 +568,19 @@ test("bounded conversion queue faults before unbounded latency can accumulate", 
   const fixture = adapters();
   fixture.value.engine.prepare = async () => ({
     outputFormat: { sampleRate: 24_000, channels: 1, sampleFormat: "f32le" },
-    convert: () => new Promise((resolve) => { releaseConversion = resolve; }),
-    reset: async () => { releaseConversion?.([]); },
+    convert: () =>
+      new Promise((resolve) => {
+        releaseConversion = resolve;
+      }),
+    reset: async () => {
+      releaseConversion?.([]);
+    },
     close: async () => {},
   });
-  const runtime = new PipelineRuntime({ ...fixture.value, maxQueuedAudioMs: 30 });
+  const runtime = new PipelineRuntime({
+    ...fixture.value,
+    maxQueuedAudioMs: 30,
+  });
   await runtime.start({});
   fixture.emitFrame(sourceFrame(1, 960));
   fixture.emitFrame(sourceFrame(2, 960));
@@ -519,7 +605,9 @@ test("default conversion queue preserves a bounded multi-second transient backlo
       }
       return [];
     },
-    reset: async () => { releaseFirstConversion.resolve(); },
+    reset: async () => {
+      releaseFirstConversion.resolve();
+    },
     close: async () => {},
   });
   const runtime = new PipelineRuntime(fixture.value);
@@ -569,7 +657,9 @@ test("Stop resets and drains an in-flight conversion before closing output or en
     outputFormat: { sampleRate: 24_000, channels: 1, sampleFormat: "f32le" },
     convert: async () => {
       log.push("engine.convert");
-      await new Promise((resolve) => { releaseConversion = resolve; });
+      await new Promise((resolve) => {
+        releaseConversion = resolve;
+      });
       log.push("engine.convert.settled");
       return [];
     },
@@ -577,7 +667,9 @@ test("Stop resets and drains an in-flight conversion before closing output or en
       log.push("engine.reset");
       releaseConversion();
     },
-    close: async () => { log.push("engine.close"); },
+    close: async () => {
+      log.push("engine.close");
+    },
   });
   const runtime = new PipelineRuntime(fixture.value);
   await runtime.start({});
@@ -603,7 +695,8 @@ test("processing cleanup failure retains suppression until a successful retry", 
     close: async () => {
       outputCloseAttempts += 1;
       log.push("output.close");
-      if (outputCloseAttempts === 1) throw new Error("sink still owns hardware");
+      if (outputCloseAttempts === 1)
+        throw new Error("sink still owns hardware");
     },
   });
   const runtime = new PipelineRuntime(fixture.value);
@@ -617,66 +710,76 @@ test("processing cleanup failure retains suppression until a successful retry", 
   assert.equal(log.at(-1), "suppression.close");
 });
 
-test("startup rollback releases the armed route only after processing resources close", async () => {
-  const log = [];
-  const fixture = adapters({ log });
-  fixture.value.source.open = async () => ({
-    format: { sampleRate: 44_100, channels: 2, sampleFormat: "f32le" },
-    close: async () => { log.push("source.close"); },
-  });
-  const runtime = new PipelineRuntime(fixture.value);
-  await assert.rejects(() => runtime.start({}), /does not match/);
-  assert.deepEqual(log.slice(-3), ["source.close", "engine.close", "suppression.close"]);
-});
-
-test("startup rollback retains suppression when processing cleanup fails", async () => {
-  let closeAttempts = 0;
-  const fixture = adapters();
-  const prepareEngine = fixture.value.engine.prepare;
-  fixture.value.engine.prepare = async (...args) => {
-    const session = await prepareEngine(...args);
-    return {
-      ...session,
+test("startup rollback owns processing and partially acquired suppression until cleanup succeeds", async () => {
+  {
+    const log = [];
+    const fixture = adapters({ log });
+    fixture.value.source.open = async () => ({
+      format: { sampleRate: 44_100, channels: 2, sampleFormat: "f32le" },
       close: async () => {
-      closeAttempts += 1;
-        if (closeAttempts === 1) throw new Error("engine rollback failed");
+        log.push("source.close");
+      },
+    });
+    const runtime = new PipelineRuntime(fixture.value);
+    await assert.rejects(() => runtime.start({}), /does not match/);
+    assert.deepEqual(log.slice(-3), [
+      "source.close",
+      "engine.close",
+      "suppression.close",
+    ]);
+  }
+
+  {
+    let closeAttempts = 0;
+    const fixture = adapters();
+    const prepareEngine = fixture.value.engine.prepare;
+    fixture.value.engine.prepare = async (...args) => {
+      const session = await prepareEngine(...args);
+      return {
+        ...session,
+        close: async () => {
+          closeAttempts += 1;
+          if (closeAttempts === 1) throw new Error("engine rollback failed");
+        },
+      };
+    };
+    fixture.value.source.open = async () => ({
+      format: { sampleRate: 44_100, channels: 2, sampleFormat: "f32le" },
+      close: async () => {},
+    });
+    const runtime = new PipelineRuntime(fixture.value);
+    await assert.rejects(() => runtime.start({}), /startup rollback failed/);
+    assert.equal(runtime.snapshot().state, "faulted");
+    assert.equal(runtime.snapshot().suppressionHeld, true);
+    await runtime.stop();
+    assert.equal(runtime.snapshot().state, "stopped");
+  }
+
+  {
+    const fixture = adapters();
+    let closes = 0;
+    const retained = {
+      get originalSuppressed() {
+        return true;
+      },
+      close: async () => {
+        closes += 1;
+        if (closes === 1) throw new Error("capture helper still owned");
       },
     };
-  };
-  fixture.value.source.open = async () => ({
-    format: { sampleRate: 44_100, channels: 2, sampleFormat: "f32le" },
-    close: async () => {},
-  });
-  const runtime = new PipelineRuntime(fixture.value);
-  await assert.rejects(() => runtime.start({}), /startup rollback failed/);
-  assert.equal(runtime.snapshot().state, "faulted");
-  assert.equal(runtime.snapshot().suppressionHeld, true);
-  await runtime.stop();
-  assert.equal(runtime.snapshot().state, "stopped");
-});
-
-test("a partially acquired suppression session is adopted for rollback and retry", async () => {
-  const fixture = adapters();
-  let closes = 0;
-  const retained = {
-    get originalSuppressed() { return true; },
-    close: async () => {
-      closes += 1;
-      if (closes === 1) throw new Error("capture helper still owned");
-    },
-  };
-  fixture.value.suppression.acquire = async () => {
-    const error = new Error("route acquisition failed");
-    error.suppressionSession = retained;
-    throw error;
-  };
-  const runtime = new PipelineRuntime(fixture.value);
-  await assert.rejects(() => runtime.start({}), /capture helper still owned/);
-  assert.equal(runtime.snapshot().state, "faulted");
-  assert.equal(runtime.snapshot().suppressionHeld, true);
-  await runtime.stop();
-  assert.equal(closes, 2);
-  assert.equal(runtime.snapshot().state, "stopped");
+    fixture.value.suppression.acquire = async () => {
+      const error = new Error("route acquisition failed");
+      error.suppressionSession = retained;
+      throw error;
+    };
+    const runtime = new PipelineRuntime(fixture.value);
+    await assert.rejects(() => runtime.start({}), /capture helper still owned/);
+    assert.equal(runtime.snapshot().state, "faulted");
+    assert.equal(runtime.snapshot().suppressionHeld, true);
+    await runtime.stop();
+    assert.equal(closes, 2);
+    assert.equal(runtime.snapshot().state, "stopped");
+  }
 });
 
 test("a partially prepared output session is adopted and retried before suppression release", async () => {
@@ -711,11 +814,17 @@ test("a conversion drain timeout returns faulted without releasing suppression",
   const fixture = adapters();
   fixture.value.engine.prepare = async () => ({
     outputFormat: { sampleRate: 24_000, channels: 1, sampleFormat: "f32le" },
-    convert: async () => new Promise((resolve) => { releaseConversion = resolve; }),
+    convert: async () =>
+      new Promise((resolve) => {
+        releaseConversion = resolve;
+      }),
     reset: async () => {},
     close: async () => {},
   });
-  const runtime = new PipelineRuntime({ ...fixture.value, shutdownDrainTimeoutMs: 5 });
+  const runtime = new PipelineRuntime({
+    ...fixture.value,
+    shutdownDrainTimeoutMs: 5,
+  });
   await runtime.start({});
   fixture.emitFrame(sourceFrame());
   await new Promise((resolve) => setImmediate(resolve));
@@ -735,7 +844,10 @@ test("source and engine frame format drift are terminal", async () => {
   sourceFixture.emitFrame({ ...sourceFrame(), sampleRate: 44_100 });
   await sourceRuntime.faultPromise;
   assert.equal(sourceRuntime.snapshot().state, "faulted");
-  assert.match(sourceRuntime.snapshot().error, /Audio source frame format changed/);
+  assert.match(
+    sourceRuntime.snapshot().error,
+    /Audio source frame format changed/,
+  );
   assert.equal(sourceRuntime.snapshot().suppressionHeld, true);
   await sourceRuntime.stop();
 
@@ -758,7 +870,10 @@ test("source and engine frame format drift are terminal", async () => {
   engineFixture.emitFrame(sourceFrame());
   await engineRuntime.frameQueue;
   assert.equal(engineRuntime.snapshot().state, "faulted");
-  assert.match(engineRuntime.snapshot().error, /Voice engine output frame format changed/);
+  assert.match(
+    engineRuntime.snapshot().error,
+    /Voice engine output frame format changed/,
+  );
   assert.equal(engineRuntime.snapshot().suppressionHeld, true);
   await engineRuntime.stop();
 });
@@ -780,7 +895,9 @@ test("oversized engine output frames fault before reaching the native sink", asy
     close: async () => {},
   });
   fixture.value.output.prepare = async () => ({
-    write: async () => { outputWrites += 1; },
+    write: async () => {
+      outputWrites += 1;
+    },
     close: async () => {},
   });
   const runtime = new PipelineRuntime(fixture.value);

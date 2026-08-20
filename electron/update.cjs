@@ -53,9 +53,6 @@ function releaseAssetName(version, platform = process.platform, arch = process.a
   if (platform === "darwin" && ["arm64", "x64"].includes(arch)) {
     return `codex-persona-voice-${version}-mac-${arch}.zip`;
   }
-  if (platform === "win32" && arch === "x64") {
-    return `codex-persona-voice-${version}-win-x64.exe`;
-  }
   if (platform === "linux" && arch === "x64") {
     return `codex-persona-voice-${version}-linux-x64.AppImage`;
   }

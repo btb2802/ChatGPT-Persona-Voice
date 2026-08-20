@@ -1,27 +1,41 @@
 # Development
 
-This guide describes the repository's current development workflow. The complete audio path is
-available only on Apple Silicon macOS 14.2 or newer, from either a prepared source checkout or the
-experimental packaged preview.
+This guide covers two live-accepted target-native paths and the implemented Windows source/contracts:
+
+- Apple Silicon macOS 14.2+ with Apple MPS;
+- Windows x64 build 20348+ source/contracts with NVIDIA CUDA and an externally Microsoft-signed
+  Persona Voice Sink required for physical-host acceptance;
+- Linux x64 with NVIDIA CUDA, PipeWire, and WirePlumber 0.4 or 0.5.
+
+macOS, Ubuntu 24.04/WirePlumber 0.4, and Fedora 42/PipeWire 1.4.11/WirePlumber 0.5.14 have live
+relay acceptance evidence. Windows source and native components exist, but a clean functional
+binary remains blocked on Microsoft driver signing.
 
 ## Prerequisites
 
-### All shell/renderer contributors
+### Common
 
 - Git
-- Bun 1.3.11 (the exact updater-worker runtime pinned by `packageManager`)
+- Bun 1.3.14, matching `packageManager`
 - Node.js 22.12 or newer
+- [`uv`](https://docs.astral.sh/uv/) 0.11.14 for source engine setup
+- network access for the first JavaScript/Python/model install
 
-### End-to-end macOS contributors
+### Platform toolchains and runtime
 
-- Apple Silicon Mac running macOS 14.2 or newer
-- Xcode Command Line Tools (`xcode-select --install`)
-- [`uv`](https://docs.astral.sh/uv/)
-- network access for the first Bun/Python/model install
-- at least 3 GiB free for the current engine runtime, plus dependency and build space
+| Platform | Required for target-native development |
+| --- | --- |
+| macOS arm64 | macOS 14.2+, Xcode Command Line Tools, Apple MPS |
+| Linux x64 | C++20 compiler, `pkg-config`, PipeWire development headers/runtime, WirePlumber, supported NVIDIA GPU/driver |
+| Windows x64 | Windows build 20348+, Visual Studio/MSVC, CMake, Windows SDK, supported NVIDIA GPU/driver |
 
-The engine lock requests Python 3.11 through `uv`. Do not replace the locked Python packages or
-model revisions with globally installed alternatives.
+Building the Windows driver submission also requires the Windows Driver Kit and Visual Studio driver
+toolchain. Building that source does not make it loadable on a normal machine: Microsoft must sign
+the catalog/driver for kernel policy.
+
+The engine installer estimates approximately 2.5 GiB installed and 6 GiB minimum free on macOS,
+9 GiB installed and 15 GiB free on Windows, and 11 GiB installed and 15 GiB free on Linux. Keep
+additional space for dependencies and native build products.
 
 ## Checkout and install
 
@@ -37,8 +51,80 @@ If the repository was cloned without submodules:
 git submodule update --init --recursive
 ```
 
-The Seed-VC submodule commit must match `engine/seed-vc/model-lock.json`; setup fails instead of
-silently using another revision.
+The Seed-VC submodule commit must match `engine/seed-vc/model-lock.json`. Setup reports an error
+instead of silently using another revision.
+
+## Platform preparation
+
+### macOS
+
+Verify the target-native toolchain:
+
+```bash
+xcode-select -p
+clang --version
+```
+
+The first live capture prompts for macOS Audio Capture permission. Persona Voice does not bypass
+TCC. Intel macOS has no qualified realtime engine profile.
+
+### Linux
+
+Install the equivalent of these Ubuntu development/runtime packages:
+
+```bash
+sudo apt-get install build-essential pkg-config libpipewire-0.3-dev pipewire wireplumber
+```
+
+The first-run/Settings system-audio screen can install or remove the managed per-user policy and
+restart the user audio services through a worker thread. Contributors can inspect or invoke the same
+implementation directly:
+
+```bash
+node scripts/linux-audio-policy.cjs inspect
+node scripts/linux-audio-policy.cjs install --reload
+```
+
+The installer refuses to replace unmanaged files at its fixed destinations. It writes a versioned
+PipeWire ingress/bypass configuration plus the matching WirePlumber 0.4 or 0.5 policy and records an
+activation receipt. Remove it with:
+
+```bash
+node scripts/linux-audio-policy.cjs remove --reload
+```
+
+The complete source path is live-proven on Ubuntu 24.04 with WirePlumber 0.4 and Fedora 42 with
+PipeWire 1.4.11 / WirePlumber 0.5.14. The Fedora acceptance covered A/B dynamic streams, per-route
+mute, SIGKILL/parent-death restoration, and uninstall cleanup.
+
+### Windows
+
+The user-mode helper build produces:
+
+```text
+cpv-audio-capture.exe
+cpv-audio-output.exe
+cpv-audio-route.exe
+cpv-driver-manager.exe
+```
+
+The driver build command:
+
+```powershell
+node scripts/windows-build-driver.cjs
+```
+
+creates an unsigned Hardware Dev Center submission payload. It deliberately does not enable test
+signing and must not be described or distributed as an installable product driver. A functional
+clean-machine path requires the returned `PersonaVoiceSink.inf`, `cpv-audio-sink.cat`, and
+`cpv-audio-sink.sys` to be Microsoft-signed.
+
+The elevated NSIS app installer invokes the fixed-resource driver manager; its uninstall flow first
+requires explicit Volume Mixer restoration and then removes the driver. The in-app system-audio
+screen observes but does not mutate per-app audio policy. A qualified run may require assigning
+ChatGPT/Codex to **Persona Voice Sink** under **Settings → System → Sound → Volume mixer**, verifying
+and keeping Persona Voice standby active, and restoring the app to **Default** or the physical
+device before quit/uninstall.
 
 ## Engine setup
 
@@ -46,22 +132,30 @@ silently using another revision.
 bun run setup:engine
 ```
 
-This command is intentionally restricted to Apple Silicon macOS. It:
+The command resolves one exact profile from the current OS/architecture:
 
-1. verifies `uv` and the pinned Seed-VC submodule;
-2. creates `runtime/seed-vc/.venv` with Python 3.11;
-3. synchronizes the full Python lock;
-4. downloads model files at pinned revisions;
-5. verifies every recorded SHA-256;
-6. writes `runtime/seed-vc/install-manifest.json`;
-7. fails if the installed runtime exceeds 15 GiB.
+| Host | Profile |
+| --- | --- |
+| macOS arm64 | `darwin-arm64-mps` |
+| Windows x64 | `windows-x64-cuda130` |
+| Linux x64 | `linux-x64-cuda130` |
 
-The verified development workspace currently uses about 2.5 GiB. The directory is ignored by Git.
-Setup uses the network; inference later forces the model libraries into offline mode.
+It then:
 
-This command is the source-workspace flow. A packaged app instead exposes **Settings → Voice →
-Install engine**, uses its embedded pinned `uv`, and publishes the verified runtime beneath
-Electron's user-data directory. See [Release engineering](RELEASE.md).
+1. verifies pinned `uv` and the Seed-VC submodule;
+2. creates `runtime/seed-vc/.venv` with managed Python 3.11;
+3. synchronizes the platform-specific hash-locked Python requirements;
+4. performs a real MPS or CUDA tensor probe before model acquisition;
+5. downloads seven model files at pinned revisions and verifies every SHA-256;
+6. writes a manifest bound to the runtime profile and requirements-lock hash;
+7. enforces the 15 GiB runtime ceiling and removes temporary installer caches.
+
+There is no CPU fallback and no automatic platform/profile substitution. Inference is configured
+offline after setup.
+
+Packaged applications expose the same profile resolution through **Settings → Voice → Install
+engine**, using the embedded pinned `uv` and platform lock. That implementation does not by itself
+prove a clean distributable; see [Release engineering](RELEASE.md).
 
 ## Run the app
 
@@ -69,11 +163,14 @@ Electron's user-data directory. See [Release engineering](RELEASE.md).
 bun run dev
 ```
 
-`dev` builds and self-tests the native helpers before starting Vite and Electron. Start ChatGPT or
-Codex first so source discovery has a live process tree. The first real capture should trigger the
-macOS Audio Capture permission flow.
+`dev` builds and self-tests the native helpers for the current OS before starting Vite and Electron.
+Start ChatGPT or Codex so source discovery has a live process tree/stream. On Linux/Windows, the
+first-run system-audio step installs or verifies the platform route before the engine step. Linux
+needs the managed policy installed/reloaded; Windows needs the signed sink installed by the elevated
+app installer and may need the per-app Volume Mixer assignment described above.
 
-To isolate development data from a normal install, set an absolute directory:
+To isolate development data from a normal install, set an absolute directory with the syntax for
+your shell:
 
 ```bash
 CODEX_PERSONA_VOICE_DATA_DIR=/absolute/path/to/dev-data bun run dev
@@ -85,97 +182,81 @@ that source mode.
 
 ## Verification ladder
 
-Run the smallest relevant check while iterating, then the full non-permissioned suite before a PR.
+Run the smallest relevant check while iterating, then the full non-permissioned suite before a PR:
 
 ```bash
 bun run test
 bun run typecheck
 bun run build:renderer
 bun run check
-```
-
-`bun run check` runs the Node tests followed by typecheck and renderer build. CI performs the three
-steps explicitly on macOS, Windows, and Linux with `bun install --frozen-lockfile`; the macOS job
-also compiles both native helpers with warnings treated as errors.
-
-macOS native checks:
-
-```bash
 bun run build:native
 bun run test:native
 ```
 
-The native test command exercises protocol/helper self-tests without selecting a live application
-route. It is safe for normal CI only when a macOS runner and toolchain are deliberately provided;
-the repository's CI compiles native code but leaves device-dependent helper execution to a named
-macOS qualification host.
+`build:native` and `test:native` dispatch to the current platform. Normal CI runs frozen install,
+tests, typecheck, renderer build, native compilation, and native self-tests on macOS, Windows, and
+Linux. Linux native self-tests use a private PipeWire session. These commands verify build/protocol
+contracts, not permissioned live routing, clean installation, CUDA latency, or release support.
 
-## Opt-in smoke tests
-
-Engine conversion using a bundled licensed reference/source sample:
+### Engine smoke
 
 ```bash
 bun run smoke:engine
 ```
 
-The output is written beneath ignored `artifacts/`. This validates the current CPVE worker path but
-does not measure capture-to-speaker p95 latency.
+The smoke uses a bundled credited reference/source sample and writes ignored output beneath
+`artifacts/`. It validates the current MPS/CUDA CPVE worker on the executing host but is not an
+end-to-end latency result.
 
-Permissioned live capture:
+### macOS permissioned smokes
 
 ```bash
 bun run smoke:capture:mac
-```
-
-Core Audio jitter/rebuffer behavior:
-
-```bash
 bun run smoke:output:jitter:mac
 ```
 
-These smokes affect local audio/TCC state. Run them interactively, stop them cleanly, and include
-host/OS/hardware details when reporting results.
+These affect local TCC/audio state. Run them interactively and include host/OS/hardware details with
+results. Linux live acceptance requires a real user PipeWire/WirePlumber session and the installed
+policy; Windows live acceptance requires a Microsoft-signed sink and explicit route-restoration
+evidence. The generic native self-tests do not replace those runs.
 
 ## Repository map
 
 | Path | Purpose |
 | --- | --- |
-| `src/` | React renderer and original Persona Voice design system implementation |
-| `src/locales/` | Complete English, Japanese, and Simplified Chinese renderer catalogs |
-| `electron/` | Main process, adapters, IPC, persistence, and binary protocol parsers |
-| `native/macos/` | Objective-C++ Core Audio capture and output helpers |
+| `src/` | React renderer and original design-system implementation |
+| `src/locales/` | Complete English, Japanese, and Simplified Chinese catalogs |
+| `electron/` | Main process, platform adapters, IPC, persistence, and protocol parsers |
+| `native/macos/` | Objective-C++ Core Audio capture/output helpers |
+| `native/linux/` | PipeWire capture/output plus WirePlumber 0.4/0.5 policy assets |
+| `native/windows/` | WASAPI helpers, route verifier, driver manager, and owned sink source |
 | `native/shared/` | CPV1 native protocol layout |
-| `engine/seed-vc/` | CPVE worker, model lock, verification, and runtime setup inputs |
+| `engine/seed-vc/` | CPVE worker, platform locks, model verification, installer inputs |
 | `engine/vendor/seed-vc/` | Pinned GPL-3.0 Seed-VC source submodule |
-| `voices/` | Target-voice manifest plus short, integrity-checked WAV references |
-| `assets/` | Repository-facing icon, architecture banner, and README demo |
-| `src/assets/` | Renderer-bundled character scenes and other UI media |
-| `scripts/` | Build, engine download/setup, packaging, and opt-in smoke entry points |
-| `tests/` | Node contract/state tests |
+| `voices/` | Target-voice manifest and integrity-checked WAV references |
+| `scripts/` | Target-native build, engine setup, policy, packaging, and smoke commands |
 | `docs/` | Architecture, protocols, privacy, platform, and release truth |
 
 Model weights, Python environments, caches, native build products, artifacts, history, and logs are
-generated into ignored paths. They never belong under `assets/`, `voices/`, or source control.
+generated in ignored paths and do not belong in source control.
 
 ## Change rules
 
-- Keep changes surgical and preserve fail-closed behavior. Do not add pass-through, identity, or
-  best-effort compatibility fallbacks.
-- Keep all three locale catalogs on the same complete key and placeholder contract; renderer copy
-  must not silently fall back to English.
-- Treat source capture, suppression, engine, and output as one transaction. A local convenience may
-  not weaken their ordering.
-- Add or update tests when changing a protocol field, queue bound, lifecycle state, timeout,
-  persistence schema, or capability code.
-- Update the matching contract document in the same PR. Protocol docs are part of the change.
-- Do not commit model caches, virtual environments, build output, smoke WAVs, logs, or user data.
+- Keep changes surgical. Do not add compatibility shims, hidden fallback engines, source-audio
+  substitution, or fake readiness.
+- Preserve source → suppression → engine → output transaction ordering.
+- Keep all three locale catalogs on the same complete key and placeholder contract.
+- Add tests when changing protocol fields, route states, queue bounds, timeouts, persistence schema,
+  driver/policy lifecycle, or capability codes.
+- Update the matching contract and platform/release status in the same pull request.
+- Do not commit model caches, virtual environments, native output, smoke WAVs, logs, or user data.
 - Do not add a target voice without authorization evidence, immutable hashes, terms URL, required
-  credit, and a privacy/license review.
+  credit, and privacy/license review.
 - Keep third-party code and generated/native assets attributable in `THIRD_PARTY_NOTICES.md`.
 
 ## Packaging during development
 
-The package scripts are host-targeted and create local experimental artifacts:
+Package only on the matching target host:
 
 ```bash
 bun run package:mac
@@ -183,12 +264,16 @@ bun run package:win
 bun run package:linux
 ```
 
-Do not call these artifacts supported installers. Windows/Linux lack the audio relay, and macOS
-still lacks production signing/notarization, clean-machine qualification, and end-to-end p95
-latency proof. The macOS artifact embeds the small installer bootstrap and acquires the 2.5 GiB
-engine separately through product UX. Normal CI verifies source contracts only. A matching `v*`
-tag invokes the separate release workflow, which builds on each target host, regenerates one
-canonical `SHA256SUMS`, and publishes GitHub Release assets for the updater channel.
+Cross-packaging is rejected. The artifacts remain experimental:
+
+- macOS lacks final Developer ID signing/notarization and clean-machine qualification;
+- Linux AppImage packaging includes the per-user policy assets and in-app install/remove/reload
+  lifecycle, but clean-machine recovery and broader distribution coverage remain to qualify;
+- Windows packaging requires `CODEX_PERSONA_VOICE_SIGNED_DRIVER_DIR` to point to a Microsoft
+  kernel-policy-signed driver package. The packager verifies it and refuses unsigned output.
+
+The tag workflow builds on each target OS, regenerates one canonical `SHA256SUMS`, signs that
+manifest, and publishes GitHub Release assets. Artifact transport is not support evidence.
 
 ## Pull requests
 
@@ -196,9 +281,10 @@ Before opening a PR:
 
 1. run `bun install --frozen-lockfile` from a clean dependency state when the lock changed;
 2. run `bun run check`;
-3. run native/engine checks when their code or contracts changed;
-4. confirm the platform matrix still distinguishes implemented, possible, and blocked;
-5. review privacy, licensing, and recovery implications;
-6. complete the pull request template with exact commands and results.
+3. run target-native and engine checks when their code/contracts changed;
+4. confirm [Platform matrix](PLATFORM_MATRIX.md) distinguishes implementation, live proof,
+   distribution gates, and support;
+5. review privacy, licensing, driver/policy lifecycle, and recovery implications;
+6. include exact commands, host details, and outcomes.
 
-See [CONTRIBUTING.md](../CONTRIBUTING.md) for issue/PR expectations.
+See [CONTRIBUTING.md](../CONTRIBUTING.md) for issue and pull-request expectations.

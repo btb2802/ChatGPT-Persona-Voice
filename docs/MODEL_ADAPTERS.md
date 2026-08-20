@@ -2,7 +2,8 @@
 
 This document defines the engineering bar for another voice-conversion backend. It is a guide for
 repository contributors, not a stable plugin API. Today, adapters are wired in Electron main and
-the only implemented profile is the bundled Seed-VC/MPS worker.
+the only implemented engine is the bundled Seed-VC worker, with explicit Apple MPS and Windows/Linux
+x64 NVIDIA CUDA profiles.
 
 ## Boundary
 
@@ -91,7 +92,8 @@ Model installation must be explicit and reproducible:
 6. keep the previous valid installation until the new one is proven, if updates are supported;
 7. support deterministic removal without deleting unrelated user data.
 
-The Seed-VC adapter implements this contract in both the source setup and packaged macOS flow.
+The Seed-VC adapter implements this contract in the source setup and cross-platform packaged engine
+installer for each qualified host profile.
 New adapters must preserve the same explicit network/license disclosure, resumable staging,
 verification-before-publication, interrupted-publication recovery, and scoped removal behavior.
 

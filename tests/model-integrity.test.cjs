@@ -12,6 +12,8 @@ const root = path.join(__dirname, "..");
 const worker = path.join(root, "engine", "seed-vc", "worker.py");
 const revision = "a".repeat(40);
 const payload = Buffer.from("exact-model-bytes");
+const runtimeProfile = "darwin-arm64-mps";
+const requirementsPayload = Buffer.from("locked-runtime-packages\n");
 const pythonExecutable = process.env.CPV_TEST_PYTHON || (process.platform === "win32" ? "python" : "python3");
 
 function sha256(value) {
@@ -22,6 +24,7 @@ function createRuntime({ manifestBytes = payload.length, artifact = payload } = 
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), "cpv-model-integrity-"));
   const runtimeRoot = path.join(directory, "runtime");
   const lockPath = path.join(directory, "model-lock.json");
+  const requirementsPath = path.join(directory, "requirements.lock.txt");
   const lock = {
     schemaVersion: 1,
     seedVcCommit: "b".repeat(40),
@@ -36,6 +39,7 @@ function createRuntime({ manifestBytes = payload.length, artifact = payload } = 
   };
   const lockText = `${JSON.stringify(lock)}\n`;
   fs.writeFileSync(lockPath, lockText);
+  fs.writeFileSync(requirementsPath, requirementsPayload);
   const snapshot = path.join(
     runtimeRoot,
     "models",
@@ -47,7 +51,9 @@ function createRuntime({ manifestBytes = payload.length, artifact = payload } = 
   fs.mkdirSync(snapshot, { recursive: true });
   fs.writeFileSync(path.join(snapshot, "weights.bin"), artifact);
   fs.writeFileSync(path.join(runtimeRoot, "install-manifest.json"), `${JSON.stringify({
-    schemaVersion: 1,
+    schemaVersion: 2,
+    runtimeProfile,
+    requirementsSha256: sha256(requirementsPayload),
     modelLockSha256: sha256(lockText),
     seedVcCommit: lock.seedVcCommit,
     python: lock.python,
@@ -59,17 +65,17 @@ function createRuntime({ manifestBytes = payload.length, artifact = payload } = 
       bytes: manifestBytes,
     }],
   })}\n`);
-  return { directory, runtimeRoot, lockPath };
+  return { directory, runtimeRoot, lockPath, requirementsPath };
 }
 
-function verify({ runtimeRoot, lockPath }) {
+function verify({ runtimeRoot, lockPath, requirementsPath }, profile = runtimeProfile) {
   const result = spawnSync(pythonExecutable, ["-c", [
     "import importlib.util, sys",
     "spec = importlib.util.spec_from_file_location('worker', sys.argv[1])",
     "module = importlib.util.module_from_spec(spec)",
     "spec.loader.exec_module(module)",
-    "module.verify_model_artifacts(module.Path(sys.argv[2]), module.Path(sys.argv[3]))",
-  ].join("; "), worker, runtimeRoot, lockPath], { encoding: "utf8" });
+    "module.verify_model_artifacts(module.Path(sys.argv[2]), module.Path(sys.argv[3]), sys.argv[4], module.Path(sys.argv[5]))",
+  ].join("; "), worker, runtimeRoot, lockPath, profile, requirementsPath], { encoding: "utf8" });
   if (result.error) throw result.error;
   return result;
 }
@@ -110,16 +116,33 @@ test("model verifier rejects installation-manifest byte metadata that does not m
   assert.match(result.stderr, /offline cache byte size mismatch/);
 });
 
+test("model verifier binds the cache to the exact platform requirements lock", (t) => {
+  const fixture = createRuntime();
+  t.after(() => fs.rmSync(fixture.directory, { recursive: true, force: true }));
+  assert.notEqual(verify(fixture, "linux-x64-cuda130").status, 0);
+  fs.writeFileSync(fixture.requirementsPath, "changed-runtime-lock\n");
+  const changedLock = verify(fixture);
+  assert.notEqual(changedLock.status, 0);
+  assert.match(changedLock.stderr, /runtime requirements lock/);
+});
+
 test("runtime package verifier requires all four exact qualified versions", () => {
-  const requirements = fs.readFileSync(
-    path.join(root, "engine", "seed-vc", "requirements-macos-arm64.lock.txt"),
-    "utf8",
-  );
-  const entries = requirements.split(/\n(?=[A-Za-z0-9_.-]+==)/u).filter(Boolean);
-  assert.ok(entries.length > 50, "the complete transitive runtime must be locked");
-  for (const entry of entries) {
-    assert.match(entry, /^[A-Za-z0-9_.-]+==[^\s\\]+\s+\\/u);
-    assert.match(entry, /--hash=sha256:[a-f0-9]{64}/u);
+  for (const filename of [
+    "requirements-macos-arm64.lock.txt",
+    "requirements-linux-x64-cuda.lock.txt",
+    "requirements-windows-x64-cuda.lock.txt",
+  ]) {
+    const requirements = fs.readFileSync(path.join(root, "engine", "seed-vc", filename), "utf8");
+    const entries = requirements.split(/\n(?=[A-Za-z0-9_.-]+==)/u).filter(Boolean);
+    assert.ok(entries.length > 50, `${filename} must lock the complete transitive runtime`);
+    for (const entry of entries) {
+      assert.match(entry, /^[A-Za-z0-9_.-]+==[^\s\\]+\s+\\/u);
+      assert.match(entry, /--hash=sha256:[a-f0-9]{64}/u);
+    }
+    if (filename.includes("cuda")) {
+      assert.match(requirements, /^torch==2\.13\.0\+cu130 /mu);
+      assert.match(requirements, /^torchaudio==2\.11\.0\+cu130 /mu);
+    }
   }
 
   const expected = {

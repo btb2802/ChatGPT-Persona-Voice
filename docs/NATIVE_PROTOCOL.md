@@ -1,7 +1,8 @@
 # CPV1 native audio protocol
 
-CPV1 is the bounded local protocol between Electron main and the macOS capture/output helpers. It
-uses child-process pipes: no TCP port, shared audio file, or raw-PCM log is part of the transport.
+CPV1 is the bounded local protocol between Electron main and the macOS, Linux, and Windows native
+capture/route/output helpers. It uses anonymous child-process pipes. No TCP port, shared audio file,
+or raw-PCM log is part of the transport.
 
 This is an internal version-1 contract, not a public compatibility promise.
 
@@ -40,102 +41,106 @@ binary frame type.
 
 Capture sequence gaps are terminal in Electron. Format changes after preparation are also terminal.
 
-## Capture control messages
+## Capture and route control
 
-The capture helper writes control and audio frames to stdout.
+Capture helpers write Ready, Status, Audio, and Error frames to stdout. Electron accepts audio only
+after the relevant platform route has proved its engaged state.
 
-Ready establishes observer state and declared PCM format. Electron currently requires at least:
+### Common route states
 
-```json
-{
-  "type": "ready",
-  "helper": "capture",
-  "protocolVersion": 1,
-  "sampleRate": 48000,
-  "channels": 2,
-  "sampleFormat": "f32le",
-  "supportsArming": true,
-  "supportsDeferredTap": true,
-  "supportsCaptureProof": true,
-  "armed": true,
-  "state": "armed",
-  "originalSuppressed": false,
-  "tapActive": false,
-  "activationSignal": "duplex_process_io"
-}
-```
-
-The sample rate in this example is illustrative; the helper declares the current default output
-format. Route lifecycle is carried by Status (`type id 4`):
-
-| State | Required proof |
+| State | Meaning |
 | --- | --- |
-| `armed` | `originalSuppressed: false`, `tapActive: false`, `captureVerified: false` |
-| `engaged` | `originalSuppressed: true`, `tapActive: true`, `captureVerified: true` |
+| `armed` | Adapter owns a valid observation/route boundary; original playback is not suppressed by conversion |
+| `engaged` | Adapter has platform-specific capture and original-route suppression proof |
 
-Audio is accepted only in `engaged`. The native capture callback writes into a preallocated 64-slot
-single-producer/single-consumer ring. Ring overflow emits an Error with suppression state instead of
-silently dropping speech. The writer continues to keep the tap owned until explicit cleanup.
+The exact proof is platform-authored rather than inferred from the state name.
 
-The capture helper monitors its Electron owner process and the stable roots of the selected source
-application. It resolves descendants again throughout the session because Chromium can create or
-replace its Audio Service after the helper starts. The active tap records the exact normalized
-Core Audio process-object set it was created for. If that set changes, the helper first restores
-and closes the old tap, emits `armed` with reason `voice_audio_process_membership_changed`, and only
-then may engage a new tap for the new set. It never reports an old tap as covering new process IDs.
-If the owner exits, the helper tears down the active Core Audio resources rather than leaving an
-orphaned tap. If every application root exits,
-it emits terminal `source_process_exited` after restoration proof; a failed restore emits
-`route_disengage_failed` with `suppressionHeld: true`. PCM streaming skips the one slot that may
-already have entered the realtime callback before suppression was engaged.
+### macOS capture contract
 
-## Output control messages
+The Core Audio helper declares `supportsArming`, `supportsDeferredTap`, `supportsCaptureProof`, and
+`activationSignal: "duplex_process_io"`. Armed status requires no tap and no suppression. Engaged
+status requires the selected process-object set, valid format/first PCM, active tap, and
+`CATapMutedWhenTapped` proof.
 
-Electron writes Audio frames to the output helper's stdin. The helper writes Ready, Status, and
-Error frames to stdout.
+The helper monitors its Electron owner and stable roots of the selected application. It refreshes
+descendants because Chromium can replace its Audio Service. A changed process-object set restores
+and closes the old tap before a new one may engage. A 64-slot SPSC capture ring reports overflow
+instead of silently dropping speech.
 
-Ready must echo the exact prepared `sampleRate`, `channels`, and `f32le` format. The current helper
-also declares:
+### Linux capture contract
+
+The PipeWire helper declares a versioned policy boundary including:
 
 ```json
 {
-  "type": "ready",
-  "helper": "output",
-  "protocolVersion": 1,
-  "maximumFrameDurationMs": 40,
-  "queueCapacityFrames": 64,
-  "supportsJitterBuffer": true,
-  "startsWhenQueueFull": true,
-  "startupPrebufferMs": 500,
-  "deviceUid": "resolved-output-device",
-  "memberDeviceUids": [],
-  "memberDeviceUidsVerified": true,
-  "isAggregateDevice": false
+  "supportsArming": true,
+  "supportsDeferredRoute": true,
+  "supportsCaptureProof": true,
+  "supportsProcessScopedRouting": true,
+  "supportsRollbackProof": true,
+  "supportsPrelinkedIngress": true,
+  "supportsDynamicProcessStreams": true,
+  "supportsCrashRecovery": true,
+  "policyVersion": 2,
+  "routeOwner": "wireplumber-prelink-policy"
 }
 ```
 
-The output helper pins the queue to the resolved device UID, reports active aggregate-device
-members plus whether every member UID was verified, and allocates exactly 64 AudioQueue buffers
-sized for at most 40 ms each. Converted-only recording-bus setup requires a non-aggregate default
-listening device and fails closed when membership cannot be fully attested. Playback starts when
-either the 500 ms target or all 64 slots are full, so protocol-valid short frames cannot deadlock
-prebuffering. It rejects format changes, zero-length audio, oversized frames, invalid byte lengths,
-and unsupported CPV1 messages.
+Ready must identify the exact `chatgpt` or `codex` route and an unmodified armed graph. Engaged
+status additionally requires owned ingress capture, capture-link proof, the matching pre-link
+policy, and verified bypass mute. Audio without that ownership proof is a protocol fault. The
+native helper owns a 64-slot capture queue and reports `suppressionHeld` when bypass restoration is
+uncertain.
 
-Status (`type id 4`) reports output lifecycle:
+### Windows capture and route contracts
 
-- `running` after the jitter buffer is primed or recovered;
-- `rebuffering` after starvation, including an underrun count and the 500 ms target.
+Windows separates PCM capture from sink membership verification:
 
-`startupPrebufferMs: 500` is a configured buffer target. It must not be presented as measured
-capture-to-speaker latency.
+- the capture helper declares `backend: "wasapi-process-loopback"`, Windows build 20348 minimum,
+  48 kHz stereo `f32le`, process-tree capture/capture proof, and `supportsSuppression: false`;
+- the route helper declares `backend: "windows-virtual-endpoint-verifier"`, the fixed Persona Voice
+  Sink identity, `routeMutation: false`, `manualAssignmentRequired: true`,
+  `restoreMechanism: "manual-volume-mixer"`, current-session membership proof, and event-driven
+  monitoring whose notifications are not guaranteed to precede first audio.
 
-## Failure rules
+The route helper emits `armed` only when no selected live session is on the sink and `engaged` when
+all applicable current live sessions are on that exact sink. WASAPI PCM is accepted for conversion
+only in `engaged`. The separate Windows standby lifecycle can consume the same capture and forward it
+through bounded physical-output passthrough while conversion is idle.
+
+The driver manager also uses CPV1 Ready/Error control frames for fixed-resource SetupAPI
+install/self-test/remove operations. It is invoked by the elevated app installer/uninstaller, never
+by the sandboxed renderer flow. It accepts only the packaged driver filenames and requires
+signature/device-state proof; that control path carries no PCM.
+
+## Output control
+
+Electron writes Audio frames to an output helper's stdin. The helper writes Ready, Status, and Error
+frames to stdout. Ready must echo the exact prepared `sampleRate`, `channels`, and `f32le` format.
+
+| Platform | Backend and target proof | Current bounds |
+| --- | --- | --- |
+| macOS | Core Audio output UID, aggregate membership and member-UID verification | ≤40 ms frame, 64 buffers, 500 ms startup/rebuffer target |
+| Linux | Native PipeWire target object and whether it follows the default | ≤40 ms frame, 64-frame queue, 500 ms startup/rebuffer target |
+| Windows conversion | WASAPI shared-render physical device id/name | ≤80 ms frame, 500 ms startup, 1,500 ms capacity |
+| Windows standby | WASAPI shared-render physical device id/name, passthrough mode | ≤80 ms frame, 40 ms startup, 250 ms capacity |
+
+macOS converted-only BlackHole setup additionally requires a non-aggregate default output and
+fully verified device membership. Linux can target an explicit PipeWire object or the resolved
+default. Windows output refuses Persona Voice Sink as its physical destination.
+
+Status reports the backend's explicit running/rebuffer or terminal failure state. Buffer targets
+are configuration values, not measured capture-to-speaker latency.
+
+## Failure and cleanup rules
 
 - Protocol errors are terminal to the active helper session.
-- Capture overflow and sequence gaps never trigger pass-through audio.
-- Output starvation transitions through explicit rebuffering; invalid output is rejected.
-- Electron retains source suppression on processing faults until Stop can complete ordered cleanup.
+- Capture overflow and sequence gaps never trigger source-PCM playback as converted output.
+- Output queues are bounded; invalid format, duration, sequence, or body length is rejected.
+- Route proof is platform-specific and cannot be synthesized from successful discovery alone.
+- A helper failure with unknown restoration reports suppression held/uncertain until ordered cleanup.
+- Windows route verification never claims to have reset persistent Volume Mixer policy; explicit
+  user restoration may remain required.
 - CPV1 has no negotiation beyond its exact version and readiness fields. A breaking change requires
   a new protocol version and matching native/Electron implementations.
 

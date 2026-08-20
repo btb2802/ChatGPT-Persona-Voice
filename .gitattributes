@@ -3,3 +3,6 @@
 *.png binary
 *.wav binary
 *.mp4 binary
+
+# Preserve the exact vendored Microsoft sample bytes and do not apply project whitespace rules.
+native/windows/driver/upstream-simpleaudiosample/** -text whitespace=-trailing-space,-space-before-tab

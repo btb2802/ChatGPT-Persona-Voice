@@ -7,9 +7,9 @@ model worker. There is no production-supported release or security-response SLA.
 
 | Version | Security status |
 | --- | --- |
-| `main` development tree | Reports and fixes are accepted; not production-supported |
+| `main` development tree | Cross-platform source-relay reports/fixes accepted; not production-supported |
 | Local packaged artifacts | Unsupported |
-| Windows/Linux relay | Not implemented; unsupported |
+| Windows clean binary | Externally blocked on Microsoft driver signing; unsupported |
 
 Security fixes normally target the current development tree. Backports are not promised.
 
@@ -48,12 +48,13 @@ Private reporting is especially appropriate for:
 - model/package supply-chain substitution or manifest/hash bypass;
 - release-asset substitution, updater worker escape, or unsafe application replacement;
 - unexpected network transmission of PCM, history, diagnostics, or local identifiers;
-- permission/TCC bypass or misleading permission state;
+- permission/TCC, Linux policy, or Windows driver/route bypass and misleading readiness state;
 - sensitive audio/history exposure across local users;
 - unbounded queues or files that can cause reliable resource exhaustion.
 
-Ordinary setup failures, expected Windows/Linux blockers, model quality, latency variation, and UI
-bugs can use the public issue templates unless they expose sensitive data or a security boundary.
+Ordinary setup failures, documented platform qualification blockers, model quality, latency
+variation, and UI bugs can use the public issue templates unless they expose sensitive data or a
+security boundary.
 
 ## Disclosure process
 
@@ -75,7 +76,7 @@ mitigation.
   `SHA256SUMS.sig` plus the matching signed digest before a detached worker runs. Persona Voice
   never embeds a token for private releases.
 - No signed/notarized public installer currently exists.
-- Experimental packaged shells disable Electron Run-as-Node, `NODE_OPTIONS`, CLI inspection, and
+- Experimental packages disable Electron Run-as-Node, `NODE_OPTIONS`, CLI inspection, and
   non-ASAR application loading; they also enable embedded ASAR integrity validation where Electron
   supports it. A packaged process also ignores `VITE_DEV_SERVER_URL`; only an unpackaged
   development run accepts the exact loopback renderer URL `http://127.0.0.1:4178`. These controls
@@ -83,7 +84,9 @@ mitigation.
 - The development Seed-VC worker uses the exact venv interpreter in Python isolated mode and strips
   inherited Python path/home, user-site, MPS fallback, and dynamic-loader injection variables. This
   narrows environment-based module substitution but does not replace clean-install provenance.
-- A passing cross-platform CI job does not establish a working or secure Windows/Linux audio relay.
+- A passing cross-platform CI job proves non-permissioned build/protocol contracts only. It does not
+  establish live route recovery, a clean Microsoft-signed Windows driver, Linux policy lifecycle,
+  CUDA behavior, or a secure supported release.
 
 See [Privacy](docs/PRIVACY.md), [Architecture](docs/ARCHITECTURE.md), and
 [Release engineering](docs/RELEASE.md).

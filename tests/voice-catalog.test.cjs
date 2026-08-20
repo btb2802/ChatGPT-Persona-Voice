@@ -18,7 +18,6 @@ const bundledVoiceIds = [
   "voicevox-whitecul-normal",
   "voicevox-ouka-miko-normal",
   "voicevox-sayo-normal",
-  "voicevox-nurse-robo-type-t-normal",
   "voicevox-haruka-nana-normal",
   "voicevox-nekotsuka-aru-normal",
   "voicevox-manbetsu-hanamaru-normal",
@@ -54,7 +53,7 @@ function fixture() {
 test("bundled catalog contains integrity-checked VOICEVOX, JARVIS, and Trump identities", () => {
   const catalog = new VoiceCatalog({ manifestPath: bundledManifestPath });
   assert.deepEqual(catalog.list().map((voice) => voice.id), bundledVoiceIds);
-  assert.equal(new Set(catalog.list().map((voice) => voice.requiredCredit)).size, 15);
+  assert.equal(new Set(catalog.list().map((voice) => voice.requiredCredit)).size, 14);
   assert.equal(catalog.resolve("jarvis-community-high").locale, "en-GB");
   assert.equal(catalog.resolve("seed-vc-donald-trump-example").locale, "en-US");
 });
@@ -71,45 +70,41 @@ test("voice catalog verifies reference integrity and hides local paths from rend
   assert.throws(() => catalog.resolve("missing"), /Select an installed/);
 });
 
-test("voice catalog rejects changed samples and path traversal", (context) => {
-  const value = fixture();
-  context.after(() => fs.rmSync(value.root, { recursive: true, force: true }));
-  fs.appendFileSync(value.reference, "tampered");
-  assert.throws(() => new VoiceCatalog({ manifestPath: value.manifestPath }), /integrity/);
-  value.manifest.voices[0].reference = "../outside.wav";
-  fs.writeFileSync(value.manifestPath, JSON.stringify(value.manifest));
+test("voice catalog rejects path, URL, and post-validation sample integrity violations", (context) => {
+  const tampered = fixture();
+  context.after(() => fs.rmSync(tampered.root, { recursive: true, force: true }));
+  fs.appendFileSync(tampered.reference, "tampered");
+  assert.throws(() => new VoiceCatalog({ manifestPath: tampered.manifestPath }), /integrity/);
+  tampered.manifest.voices[0].reference = "../outside.wav";
+  fs.writeFileSync(tampered.manifestPath, JSON.stringify(tampered.manifest));
   assert.throws(
     () => new VoiceCatalog({
-      manifestPath: value.manifestPath,
+      manifestPath: tampered.manifestPath,
       exists: () => true,
-      hashFile: () => value.manifest.voices[0].referenceSha256,
+      hashFile: () => tampered.manifest.voices[0].referenceSha256,
     }),
     /escapes/,
   );
-});
 
-test("voice catalog exposes only HTTPS terms and immutable bounded WAV samples", (context) => {
-  const value = fixture();
-  context.after(() => fs.rmSync(value.root, { recursive: true, force: true }));
-  value.manifest.voices[0].termsUrl = "http://example.com/terms";
-  fs.writeFileSync(value.manifestPath, JSON.stringify(value.manifest));
-  assert.throws(() => new VoiceCatalog({ manifestPath: value.manifestPath }), /HTTPS URL/);
+  const invalidTerms = fixture();
+  context.after(() => fs.rmSync(invalidTerms.root, { recursive: true, force: true }));
+  invalidTerms.manifest.voices[0].termsUrl = "http://example.com/terms";
+  fs.writeFileSync(invalidTerms.manifestPath, JSON.stringify(invalidTerms.manifest));
+  assert.throws(() => new VoiceCatalog({ manifestPath: invalidTerms.manifestPath }), /HTTPS URL/);
 
-  value.manifest.voices[0].termsUrl = "https://example.com/terms";
-  fs.writeFileSync(value.manifestPath, JSON.stringify(value.manifest));
-  const catalog = new VoiceCatalog({ manifestPath: value.manifestPath });
-  fs.appendFileSync(value.reference, "changed");
-  assert.throws(() => catalog.sample("licensed-voice"), /changed after catalog validation/);
-});
+  invalidTerms.manifest.voices[0].termsUrl = "https://example.com/terms";
+  fs.writeFileSync(invalidTerms.manifestPath, JSON.stringify(invalidTerms.manifest));
+  const invalidTermsCatalog = new VoiceCatalog({ manifestPath: invalidTerms.manifestPath });
+  fs.appendFileSync(invalidTerms.reference, "changed");
+  assert.throws(() => invalidTermsCatalog.sample("licensed-voice"), /changed after catalog validation/);
 
-test("voice catalog rehashes same-size reference mutations before every use", (context) => {
-  const value = fixture();
-  context.after(() => fs.rmSync(value.root, { recursive: true, force: true }));
-  const catalog = new VoiceCatalog({ manifestPath: value.manifestPath });
-  fs.writeFileSync(value.reference, Buffer.from("tampered-voice!"));
-  assert.equal(fs.statSync(value.reference).size, Buffer.byteLength("voice-reference"));
-  assert.throws(() => catalog.resolve("licensed-voice"), /changed after catalog validation/);
-  assert.throws(() => catalog.sample("licensed-voice"), /changed after catalog validation/);
+  const sameSize = fixture();
+  context.after(() => fs.rmSync(sameSize.root, { recursive: true, force: true }));
+  const sameSizeCatalog = new VoiceCatalog({ manifestPath: sameSize.manifestPath });
+  fs.writeFileSync(sameSize.reference, Buffer.from("tampered-voice!"));
+  assert.equal(fs.statSync(sameSize.reference).size, Buffer.byteLength("voice-reference"));
+  assert.throws(() => sameSizeCatalog.resolve("licensed-voice"), /changed after catalog validation/);
+  assert.throws(() => sameSizeCatalog.sample("licensed-voice"), /changed after catalog validation/);
 });
 
 test("voice catalog merges an integrity-checked local overlay without weakening bundled voices", (context) => {

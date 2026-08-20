@@ -4,7 +4,7 @@ const assert = require("node:assert/strict");
 const test = require("node:test");
 const { EngineMessageParser, encodeEngineMessage } = require("../electron/engine-protocol.cjs");
 
-test("engine protocol preserves split and coalesced binary messages", () => {
+test("engine protocol preserves split/coalesced messages and rejects corrupt framing", () => {
   const received = [];
   const parser = new EngineMessageParser((message) => received.push(message));
   const first = encodeEngineMessage({ type: "convert", id: 7 }, Buffer.from([1, 2, 3]));
@@ -18,12 +18,9 @@ test("engine protocol preserves split and coalesced binary messages", () => {
   ]);
   assert.deepEqual([...received[0].body], [1, 2, 3]);
   assert.equal(received[1].body.length, 0);
-});
-
-test("engine protocol rejects corrupt framing and truncated streams", () => {
   assert.throws(() => encodeEngineMessage({ id: 1 }), /header/);
-  const parser = new EngineMessageParser(() => {});
-  assert.throws(() => parser.push(Buffer.alloc(12)), /magic/);
+  const corruptParser = new EngineMessageParser(() => {});
+  assert.throws(() => corruptParser.push(Buffer.alloc(12)), /magic/);
   const truncated = new EngineMessageParser(() => {});
   truncated.push(encodeEngineMessage({ type: "reset", id: 1 }).subarray(0, 10));
   assert.throws(() => truncated.finish(), /truncated/);

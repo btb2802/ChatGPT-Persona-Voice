@@ -60,20 +60,23 @@ vary with the machine, source audio, and selected reference.
 ChatGPT / Codex app
         │ selected process audio
         ▼
-Native process-audio route ── suppress original route
+Native process-audio route
+Core Audio · PipeWire/WirePlumber · WASAPI + owned sink
+        │ suppress original route after proof
         │  bounded PCM
         ▼
 Local Seed-VC worker ── 300 ms input / 20 ms output frames
         │
-        ├──────────────▶ speakers
+        ├──────────────▶ native platform output
         ├──────────────▶ converted-only history
-        └──────────────▶ optional BlackHole recording bus
+        └──────────────▶ optional macOS BlackHole recording bus
 ```
 
-Persona Voice remains armed without touching normal system audio. It engages only when the native
-observer proves that the selected ChatGPT/Codex process is in an active duplex voice session. The
-Electron renderer has no Node.js access; Electron main owns validated IPC, lifecycle, settings,
-history, and fail-closed state transitions.
+Each platform keeps ordinary playback audible while Persona Voice is idle: macOS leaves its tap
+detached, Linux uses an owned bypass stream, and the current Windows route keeps bounded passthrough
+to the physical output after the user assigns the app to Persona Voice Sink. Conversion engages
+only after the platform adapter proves capture and route ownership. The Electron renderer has no
+Node.js access; Electron main owns validated IPC, lifecycle, settings, and history.
 
 Read the full [architecture](docs/ARCHITECTURE.md), [native protocol](docs/NATIVE_PROTOCOL.md),
 and [engine contract](docs/ENGINE_CONTRACT.md).
@@ -81,20 +84,16 @@ and [engine contract](docs/ENGINE_CONTRACT.md).
 ## Demo
 
 <p align="center">
-  <video src="assets/demo.mp4" controls playsinline width="960" poster="assets/architecture-visual-v2.png"></video>
+  <a href="assets/demo.mp4"><img src="assets/architecture-visual-v2.png" alt="Open the real 1080p MP4 Persona Voice demo" width="960"></a>
 </p>
 
 <p align="center">
   <a href="assets/demo.mp4"><strong>▶ Watch the 1080p demo</strong></a>
 </p>
 
-The demo uses the credited `VOICEVOX:小夜/SAYO` reference. If GitHub does not render the inline
-player in your client, use the direct video link above.
-
-<!--
-For the most reliable inline GitHub player after publication, upload the final H.264 MP4 through
-the GitHub README editor and replace the video source with the generated user-attachments URL.
--->
+The demo is a real H.264 MP4 and uses the credited `VOICEVOX:小夜/SAYO` reference. GitHub does not
+render a repository-local `<video>` element, so the direct link remains until a GitHub
+user-attachments URL is available.
 
 ## Quick start
 
@@ -102,10 +101,13 @@ the GitHub README editor and replace the video source with the generated user-at
 
 Requirements:
 
-- Apple Silicon Mac with macOS 14.2 or newer;
-- Xcode Command Line Tools;
-- Git, Bun 1.3.11, Node.js 22.12+, and [`uv`](https://docs.astral.sh/uv/);
-- roughly 2.5 GiB for the current engine runtime, plus dependency and build space.
+- Git, Bun 1.3.14, Node.js 22.12+, and [`uv`](https://docs.astral.sh/uv/);
+- one qualified host profile: Apple Silicon macOS 14.2+ with MPS, x64 Linux with a supported
+  NVIDIA CUDA driver, or x64 Windows build 20348+ with a supported NVIDIA CUDA driver;
+- the platform native toolchain: Xcode Command Line Tools on macOS, a C++20 compiler plus
+  `pkg-config`/PipeWire development headers on Linux, or MSVC/CMake/Windows SDK on Windows;
+- engine space: approximately 2.5 GiB installed and 6 GiB free on macOS, 9 GiB installed and
+  15 GiB free on Windows, or 11 GiB installed and 15 GiB free on Linux.
 
 ```bash
 git clone --recurse-submodules https://github.com/miuuyy/ChatGPT-Persona-Voice.git
@@ -115,40 +117,70 @@ bun run setup:engine
 bun run dev
 ```
 
+Linux also needs PipeWire and WirePlumber. The first-run system-audio step can install the owned
+per-user ChatGPT/Codex routing policy and restart the user audio services once. Playback pauses
+briefly, but Persona Voice stays open. Contributors can inspect or perform the same operation
+directly:
+
+```bash
+node scripts/linux-audio-policy.cjs install --reload
+```
+
+That path is live-proven on Ubuntu 24.04 with WirePlumber 0.4 and on Fedora 42 with PipeWire
+1.4.11 / WirePlumber 0.5.14.
+
+Windows requires a Microsoft-signed `Persona Voice Sink` driver package. The elevated app installer
+installs/removes only that fixed signed package; repository builds can produce the driver source and
+user-mode helpers, but an unsigned local driver is not a clean installable product. The first-run
+system-audio step then guides live-route verification. Because the verifier does not silently change
+per-app policy, the current flow asks you to open ChatGPT/Codex and start live audio, select
+**Persona Voice Sink** under **Settings → System → Sound → Volume mixer**, then return to Persona
+Voice to verify and start guarded standby. Quit remains blocked until you restore that app to
+**Default** or the physical listening device and confirm restoration; the elevated uninstaller asks
+the same before removing the driver. A crash or force-kill can still leave Windows' persisted
+per-app preference pointing at the sink, so restoration must be checked manually.
+
 On first launch, choose **English**, **日本語**, or **简体中文** explicitly; Persona Voice never
 guesses the interface language. The following support step is optional, and the engine step can be
-completed immediately or later from Settings. Then start ChatGPT or Codex, select it in Persona
-Voice, press **Start**, and enter voice mode. macOS will request Audio Capture permission on first
-use. The first engine load is slower than later starts because models and the realtime inference
-path must be prepared. The interface language can be changed later under **Settings → Application**.
+completed immediately or later from Settings. Linux/Windows also show the platform-audio step
+described above. Then start ChatGPT or Codex, select it in Persona
+Voice, press **Start**, and enter voice mode. macOS requests Audio Capture permission on first use;
+Linux verifies the installed PipeWire/WirePlumber policy; Windows verifies the signed sink and the
+current app assignment. The first engine load is slower than later starts because models and the
+realtime inference path must be prepared. The interface language can be changed later under
+**Settings → Application**.
 
-### Packaged macOS build
+### Packaged builds and engine installation
 
 The launcher package stays small by keeping the model runtime separate. Open
 **Settings → Voice → Install engine** to install the pinned private runtime into application data.
 The installer verifies the managed Python runtime, package lock, model revisions, and SHA-256
 hashes before publishing the engine atomically. Installation can be cancelled and resumed.
 
-No system Python, Homebrew, terminal command, API key, or Apple developer certificate is required
-for the in-app engine installation. App notarization is a separate distribution concern; current
-artifacts are experimental and not yet production-signed or clean-machine qualified.
+No system Python, terminal command, or voice API key is required for in-app engine installation.
+Public distribution remains a separate gate. macOS still needs production signing/notarization and
+clean-machine qualification. Linux's packaged policy install/remove/reload UX is implemented but
+still needs clean-machine recovery qualification and broader distribution coverage. Windows
+packaging refuses to proceed unless
+`CODEX_PERSONA_VOICE_SIGNED_DRIVER_DIR` points to a Microsoft kernel-policy-signed driver package;
+that external driver-signing gate is not complete.
 
 ## Platform status
 
-| Platform | Launcher | Transparent voice relay | Status |
+| Platform | Local engine | Native transparent relay | Current evidence / blocker |
 | --- | --- | --- | --- |
-| Apple Silicon macOS 14.2+ | Implemented | Implemented | Experimental preview |
-| Intel macOS | Renderer builds | Blocked | Unsupported |
-| Windows | Shell + process discovery | Not implemented | Unsupported |
-| Linux | Shell + PipeWire discovery | Not implemented | Unsupported |
+| Apple Silicon macOS 14.2+ | MPS profile implemented | Core Audio capture/suppression/output implemented | Live path manually accepted; release signing and clean-machine qualification remain |
+| Linux x64 + NVIDIA | CUDA 13.0 profile implemented | PipeWire/WirePlumber per-app policy, in-app setup, capture, suppression, and output implemented | Live Ubuntu 24.04 / WirePlumber 0.4 and Fedora 42 / PipeWire 1.4.11 / WirePlumber 0.5.14 proof; clean packaged recovery and broader distributions remain to qualify |
+| Windows x64 + NVIDIA, build 20348+ | CUDA 13.0 profile implemented | WASAPI process capture/output and owned virtual-sink source/contracts implemented | No clean binary until Microsoft signs the driver; physical Windows E2E and explicit Volume Mixer restore remain unqualified |
+| Other hosts | No qualified realtime profile | Not qualified | Unsupported |
 
-Platform shells deliberately report blockers where the transparent relay is incomplete. There is
-no hidden passthrough or identity-converter fallback. See the [platform matrix](docs/PLATFORM_MATRIX.md).
+Implemented source paths are not the same as supported releases. See the detailed
+[platform matrix](docs/PLATFORM_MATRIX.md) and [release gates](docs/RELEASE.md).
 
 ## Voice references
 
 The bundled catalog currently includes Shikoku Metan, Zundamon, Kasukabe Tsumugi, Meimei Himari,
-Kyushu Sora, WhiteCUL, Ouka Miko, Sayo, Nurse Robo Type T, Haruka Nana, Nekotsuka Aru, Manbetsu
+Kyushu Sora, WhiteCUL, Ouka Miko, Sayo, Haruka Nana, Nekotsuka Aru, Manbetsu
 Hanamaru, Kotoyomi Nia, a community JARVIS reference, and an unaffiliated Donald Trump demo
 likeness.
 
@@ -162,11 +194,13 @@ authentic speech or endorsement. Use only voices you are authorized to use. See 
 
 - Raw captured PCM is not intentionally persisted or logged.
 - History accepts only converted frames submitted to the output session.
-- The original route remains unchanged while armed and is suppressed only after engagement proof.
-- Engine or output faults keep suppression held until an explicit Stop can prove restoration.
+- Idle playback is preserved through the platform's detached tap, owned bypass, or bounded standby
+  path; conversion begins only after platform-specific route proof.
+- Engine or output faults retain explicit route ownership/uncertainty until the platform-specific
+  Stop and restoration flow completes.
 - Settings, logs, models, references, and optional history remain in local workspace/application
   storage during use.
-- BlackHole and OBS are separate trust boundaries. When using the converted-only recording bus,
+- On macOS, BlackHole and OBS are separate trust boundaries. When using the converted-only recording bus,
   mute audio from OBS macOS Screen Capture or it will record the original system stream as well.
 
 Read [Privacy](docs/PRIVACY.md), [Security](SECURITY.md), and

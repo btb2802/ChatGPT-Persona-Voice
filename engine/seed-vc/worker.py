@@ -39,6 +39,16 @@ MAX_PROMPT_SECONDS = 15.0
 MIN_STYLE_SECONDS = 3.0
 MAX_STYLE_SECONDS = 30.0
 STYLE_DEVICE = "cpu"
+RUNTIME_PROFILE_DEVICES = {
+    "darwin-arm64-mps": "mps",
+    "windows-x64-cuda130": "cuda",
+    "linux-x64-cuda130": "cuda",
+}
+RUNTIME_PROFILE_BACKENDS = {
+    "darwin-arm64-mps": "mps",
+    "windows-x64-cuda130": "cu130",
+    "linux-x64-cuda130": "cu130",
+}
 PROTOCOL_OUT: BinaryIO = sys.stdout.buffer
 sys.stdout = sys.stderr
 
@@ -88,6 +98,9 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser()
     parser.add_argument("--seed-root", required=True, type=Path)
     parser.add_argument("--runtime-root", required=True, type=Path)
+    parser.add_argument("--runtime-profile", required=True, choices=tuple(RUNTIME_PROFILE_DEVICES))
+    parser.add_argument("--requirements-lock", required=True, type=Path)
+    parser.add_argument("--device", required=True, choices=("mps", "cuda"))
     parser.add_argument("--voice", required=True, type=Path)
     parser.add_argument("--voice-sha256", required=True)
     parser.add_argument("--source-rate", required=True, type=int)
@@ -97,6 +110,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--prompt-seconds", type=float, default=3.0)
     parser.add_argument("--style-seconds", type=float, default=17.0)
     args = parser.parse_args()
+    if RUNTIME_PROFILE_DEVICES[args.runtime_profile] != args.device:
+        parser.error("--runtime-profile and --device do not identify the same qualified runtime")
     if not math.isfinite(args.prompt_seconds) or not MIN_PROMPT_SECONDS <= args.prompt_seconds <= MAX_PROMPT_SECONDS:
         parser.error(
             f"--prompt-seconds must be between {MIN_PROMPT_SECONDS:g} and {MAX_PROMPT_SECONDS:g}"
@@ -170,7 +185,12 @@ def locked_model_entries(lock: object) -> list[dict[str, object]]:
     return entries
 
 
-def verify_model_artifacts(runtime_root: Path, lock_path: Path) -> tuple[dict[str, object], dict[tuple[str, str], Path]]:
+def verify_model_artifacts(
+    runtime_root: Path,
+    lock_path: Path,
+    runtime_profile: str,
+    requirements_path: Path,
+) -> tuple[dict[str, object], dict[tuple[str, str], Path]]:
     """Validate each locked Hugging Face snapshot file before importing model code."""
     try:
         lock_bytes = lock_path.read_bytes()
@@ -181,8 +201,16 @@ def verify_model_artifacts(runtime_root: Path, lock_path: Path) -> tuple[dict[st
         raise model_integrity_error(f"cannot read model lock or installation manifest ({error})") from error
 
     entries = locked_model_entries(lock)
-    if not isinstance(manifest, dict) or manifest.get("schemaVersion") != 1:
+    if not isinstance(manifest, dict) or manifest.get("schemaVersion") != 2:
         raise model_integrity_error("installation manifest schema is unsupported")
+    if manifest.get("runtimeProfile") != runtime_profile:
+        raise model_integrity_error("installation manifest runtime profile does not match this host")
+    try:
+        requirements_digest = sha256(requirements_path.resolve(strict=True))
+    except OSError as error:
+        raise model_integrity_error(f"runtime requirements lock is missing ({error})") from error
+    if manifest.get("requirementsSha256") != requirements_digest:
+        raise model_integrity_error("installation manifest does not match the runtime requirements lock")
     if manifest.get("modelLockSha256") != hashlib.sha256(lock_bytes).hexdigest():
         raise model_integrity_error("installation manifest does not match the current model lock")
     if manifest.get("seedVcCommit") != lock.get("seedVcCommit"):
@@ -273,6 +301,47 @@ def validate_runtime_packages(expected: object, installed: dict[str, str]) -> No
             raise RuntimeError(f"{name} {required} is required, found {actual}")
 
 
+def validate_device_profile(torch, device_name: str) -> dict[str, object]:
+    """Prove the requested accelerator with a real operation; never select a fallback."""
+    if device_name == "mps":
+        if not torch.backends.mps.is_available():
+            raise RuntimeError("Apple MPS is unavailable; the macOS realtime profile cannot start")
+        device = torch.device("mps")
+        probe = torch.ones((8, 8), dtype=torch.float32, device=device)
+        float((probe @ probe).sum().item())
+        torch.mps.synchronize()
+        return {"device": "mps", "backend": "mps"}
+    if device_name == "cuda":
+        if not torch.cuda.is_available() or torch.cuda.device_count() < 1:
+            raise RuntimeError(
+                "NVIDIA CUDA is unavailable; Windows/Linux realtime mode requires a supported NVIDIA GPU and driver"
+            )
+        index = torch.cuda.current_device()
+        device = torch.device("cuda", index)
+        probe = torch.ones((8, 8), dtype=torch.float32, device=device)
+        float((probe @ probe).sum().item())
+        torch.cuda.synchronize(device)
+        cuda_version = getattr(torch.version, "cuda", None)
+        if not isinstance(cuda_version, str) or not re.fullmatch(r"\d+\.\d+", cuda_version):
+            raise RuntimeError("PyTorch did not report a qualified CUDA runtime version")
+        return {
+            "device": "cuda",
+            "backend": f"cu{cuda_version.replace('.', '')}",
+            "cudaDeviceName": torch.cuda.get_device_name(index),
+            "cudaCapability": list(torch.cuda.get_device_capability(index)),
+        }
+    raise RuntimeError(f"Unsupported realtime device profile: {device_name}")
+
+
+def synchronize_device(torch, device) -> None:
+    if device.type == "mps":
+        torch.mps.synchronize()
+    elif device.type == "cuda":
+        torch.cuda.synchronize(device)
+    else:
+        raise RuntimeError(f"Unqualified Seed-VC inference device: {device.type}")
+
+
 def load_upstream(
     args: argparse.Namespace,
     lock: dict[str, object],
@@ -296,8 +365,12 @@ def load_upstream(
         "transformers": transformers.__version__,
         "huggingface-hub": huggingface_hub.__version__,
     })
-    if not torch.backends.mps.is_available():
-        raise RuntimeError("Apple MPS is unavailable; this runtime profile cannot start")
+    device_info = validate_device_profile(torch, args.device)
+    if device_info["backend"] != RUNTIME_PROFILE_BACKENDS[args.runtime_profile]:
+        raise RuntimeError(
+            f"Seed-VC profile {args.runtime_profile} requires {RUNTIME_PROFILE_BACKENDS[args.runtime_profile]}, "
+            f"found {device_info['backend']}"
+        )
 
     seed_root = args.seed_root.resolve()
     module_path = seed_root / "real-time-gui.py"
@@ -311,7 +384,7 @@ def load_upstream(
     upstream = importlib.util.module_from_spec(spec)
     with redirect_stdout(sys.stderr):
         spec.loader.exec_module(upstream)
-    upstream.device = torch.device("mps")
+    upstream.device = torch.device(args.device)
 
     repositories = lock["repositories"]
     wav_snapshot = artifact_paths[("facebook/wav2vec2-xls-r-300m", "config.json")].parent
@@ -345,8 +418,8 @@ def load_upstream(
             config_path=None,
             fp16=True,
         ))
-    torch.mps.synchronize()
-    return upstream, model_set, torch, time.perf_counter() - started
+    synchronize_device(torch, upstream.device)
+    return upstream, model_set, torch, time.perf_counter() - started, device_info
 
 
 class StreamingConverter:
@@ -468,17 +541,21 @@ class StreamingConverter:
 
     def memory_metrics(self) -> dict[str, int]:
         metrics: dict[str, int] = {}
-        for key, method_name in (
-            ("mpsCurrentAllocatedBytes", "current_allocated_memory"),
-            ("mpsDriverAllocatedBytes", "driver_allocated_memory"),
-            ("mpsRecommendedMaxBytes", "recommended_max_memory"),
-        ):
-            method = getattr(self.torch.mps, method_name, None)
-            if callable(method):
-                try:
-                    metrics[key] = int(method())
-                except Exception:
-                    pass
+        if self.device.type == "mps":
+            for key, method_name in (
+                ("mpsCurrentAllocatedBytes", "current_allocated_memory"),
+                ("mpsDriverAllocatedBytes", "driver_allocated_memory"),
+                ("mpsRecommendedMaxBytes", "recommended_max_memory"),
+            ):
+                method = getattr(self.torch.mps, method_name, None)
+                if callable(method):
+                    try:
+                        metrics[key] = int(method())
+                    except Exception:
+                        pass
+        elif self.device.type == "cuda":
+            metrics["cudaAllocatedBytes"] = int(self.torch.cuda.memory_allocated(self.device))
+            metrics["cudaReservedBytes"] = int(self.torch.cuda.memory_reserved(self.device))
         return metrics
 
     def _update_input(self, body: bytes):
@@ -544,7 +621,7 @@ class StreamingConverter:
     def warmup(self) -> float:
         started = time.perf_counter()
         self._infer()
-        self.torch.mps.synchronize()
+        synchronize_device(self.torch, self.device)
         elapsed = time.perf_counter() - started
         self.reset()
         return elapsed
@@ -584,7 +661,7 @@ class StreamingConverter:
                 infer_wav[:self.block_frame], nan=0.0, posinf=1.0, neginf=-1.0,
             ).clamp(-1.0, 1.0)
             output = output_tensor.float().cpu().numpy().astype("<f4", copy=False)
-        self.torch.mps.synchronize()
+        synchronize_device(self.torch, self.device)
         return output.tobytes(), {
             "sampleRate": self.sample_rate,
             "channels": 1,
@@ -614,10 +691,21 @@ def run() -> None:
         raise RuntimeError("Selected voice reference failed its worker-bound SHA-256 check")
     runtime_root = args.runtime_root.resolve()
     lock_path = Path(__file__).with_name("model-lock.json")
-    lock, artifact_paths = verify_model_artifacts(runtime_root, lock_path)
+    lock, artifact_paths = verify_model_artifacts(
+        runtime_root,
+        lock_path,
+        args.runtime_profile,
+        args.requirements_lock,
+    )
     configure_environment(runtime_root)
-    send({"type": "status", "stage": "loading", "detail": "Loading Seed-VC on Apple MPS"})
-    upstream, model_set, torch, load_seconds = load_upstream(args, lock, artifact_paths)
+    send({
+        "type": "status",
+        "stage": "loading",
+        "detail": f"Loading Seed-VC on {args.device.upper()}",
+    })
+    upstream, model_set, torch, load_seconds, device_info = load_upstream(
+        args, lock, artifact_paths,
+    )
     converter = StreamingConverter(upstream, model_set, torch, args, reference_bytes)
     send({"type": "status", "stage": "warming", "detail": "Compiling the realtime inference path"})
     warmup_seconds = converter.warmup()
@@ -625,6 +713,8 @@ def run() -> None:
         "type": "ready",
         "protocolVersion": 1,
         "engine": "seed-vc-tiny-realtime",
+        "runtimeProfile": args.runtime_profile,
+        **device_info,
         "sampleRate": converter.sample_rate,
         "channels": 1,
         "sampleFormat": "f32le",

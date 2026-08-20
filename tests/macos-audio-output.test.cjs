@@ -5,7 +5,11 @@ const { EventEmitter } = require("node:events");
 const { PassThrough } = require("node:stream");
 const test = require("node:test");
 const { MacAudioOutput } = require("../electron/macos-audio-output.cjs");
-const { NativeFrameParser, encodeAudioFrame, encodeFrame } = require("../electron/native-protocol.cjs");
+const {
+  NativeFrameParser,
+  encodeAudioFrame,
+  encodeFrame,
+} = require("../electron/native-protocol.cjs");
 
 function fakeChild() {
   const child = new EventEmitter();
@@ -35,115 +39,139 @@ function outputReady({
   memberDeviceUidsVerified = true,
   isAggregateDevice = false,
 } = {}) {
-  return encodeFrame("ready", Buffer.from(JSON.stringify({
-    type: "ready",
-    helper: "output",
-    protocolVersion: 1,
-    sampleRate,
-    channels: 1,
-    sampleFormat: "f32le",
-    maximumFrameDurationMs: 40,
-    queueCapacityFrames: 64,
-    supportsJitterBuffer: true,
-    startsWhenQueueFull: true,
-    startupPrebufferMs: 500,
-    deviceUid,
-    deviceName,
-    usesDefaultDevice,
-    memberDeviceUids,
-    memberDeviceUidsVerified,
-    isAggregateDevice,
-  })));
+  return encodeFrame(
+    "ready",
+    Buffer.from(
+      JSON.stringify({
+        type: "ready",
+        helper: "output",
+        protocolVersion: 1,
+        sampleRate,
+        channels: 1,
+        sampleFormat: "f32le",
+        maximumFrameDurationMs: 40,
+        queueCapacityFrames: 64,
+        supportsJitterBuffer: true,
+        startsWhenQueueFull: true,
+        startupPrebufferMs: 500,
+        deviceUid,
+        deviceName,
+        usesDefaultDevice,
+        memberDeviceUids,
+        memberDeviceUidsVerified,
+        isAggregateDevice,
+      }),
+    ),
+  );
 }
 
 const nextTurn = () => new Promise((resolve) => setImmediate(resolve));
 
-test("macOS output writes framed PCM only after format-matched readiness", async () => {
-  const child = fakeChild();
-  const spawns = [];
-  const output = new MacAudioOutput({
-    helperPath: "/helpers/output",
-    platform: "darwin",
-    exists: () => true,
-    probeHelper: async () => ({
-      type: "ready",
-      helper: "output",
-      protocolVersion: 1,
-      supportsJitterBuffer: true,
-      startsWhenQueueFull: true,
-      startupPrebufferMs: 500,
-      queueCapacityFrames: 64,
-      deviceUid: "default-device",
-      deviceName: "Default output",
-      usesDefaultDevice: true,
-      memberDeviceUids: [],
-      memberDeviceUidsVerified: true,
-      isAggregateDevice: false,
-    }),
-    spawnProcess: (executable, args) => {
-      spawns.push({ executable, args });
-      return child;
-    },
-  });
-  const preparing = output.prepare({}, { sampleRate: 24_000, channels: 1, sampleFormat: "f32le" }, () => {});
-  await nextTurn();
-  child.stdout.emit("data", outputReady());
-  const session = await preparing;
-  assert.deepEqual(spawns[0].args, ["--sample-rate", "24000", "--channels", "1"]);
+test("macOS output writes only format-matched framed PCM", async () => {
+  {
+    const child = fakeChild();
+    const spawns = [];
+    const output = new MacAudioOutput({
+      helperPath: "/helpers/output",
+      platform: "darwin",
+      exists: () => true,
+      probeHelper: async () => ({
+        type: "ready",
+        helper: "output",
+        protocolVersion: 1,
+        supportsJitterBuffer: true,
+        startsWhenQueueFull: true,
+        startupPrebufferMs: 500,
+        queueCapacityFrames: 64,
+        deviceUid: "default-device",
+        deviceName: "Default output",
+        usesDefaultDevice: true,
+        memberDeviceUids: [],
+        memberDeviceUidsVerified: true,
+        isAggregateDevice: false,
+      }),
+      spawnProcess: (executable, args) => {
+        spawns.push({ executable, args });
+        return child;
+      },
+    });
+    const preparing = output.prepare(
+      {},
+      { sampleRate: 24_000, channels: 1, sampleFormat: "f32le" },
+      () => {},
+    );
+    await nextTurn();
+    child.stdout.emit("data", outputReady());
+    const session = await preparing;
+    assert.deepEqual(spawns[0].args, [
+      "--sample-rate",
+      "24000",
+      "--channels",
+      "1",
+    ]);
 
-  const chunks = [];
-  child.stdin.on("data", (chunk) => chunks.push(chunk));
-  const pcm = Buffer.alloc(480 * 4);
-  await session.write({
-    sequence: 1,
-    sampleRate: 24_000,
-    channels: 1,
-    sampleFormat: "f32le",
-    samplesPerChannel: 480,
-    pcm,
-  });
-  const messages = [];
-  const parser = new NativeFrameParser((message) => messages.push(message));
-  parser.push(Buffer.concat(chunks));
-  parser.finish();
-  assert.equal(messages.length, 1);
-  assert.deepEqual(Buffer.from(messages[0].pcm), pcm);
-  await session.close();
-});
+    const chunks = [];
+    child.stdin.on("data", (chunk) => chunks.push(chunk));
+    const pcm = Buffer.alloc(480 * 4);
+    await session.write({
+      sequence: 1,
+      sampleRate: 24_000,
+      channels: 1,
+      sampleFormat: "f32le",
+      samplesPerChannel: 480,
+      pcm,
+    });
+    const messages = [];
+    const parser = new NativeFrameParser((message) => messages.push(message));
+    parser.push(Buffer.concat(chunks));
+    parser.finish();
+    assert.equal(messages.length, 1);
+    assert.deepEqual(Buffer.from(messages[0].pcm), pcm);
+    await session.close();
+  }
 
-test("macOS output rejects a frame that changes prepared format", async () => {
-  const child = fakeChild();
-  const output = new MacAudioOutput({
-    helperPath: "/helpers/output",
-    platform: "darwin",
-    exists: () => true,
-    probeHelper: async () => ({
-      supportsJitterBuffer: true,
-      startsWhenQueueFull: true,
-      startupPrebufferMs: 500,
-      queueCapacityFrames: 64,
-      deviceUid: "default-device",
-      deviceName: "Default output",
-      usesDefaultDevice: true,
-      memberDeviceUids: [],
-      memberDeviceUidsVerified: true,
-      isAggregateDevice: false,
-    }),
-    spawnProcess: () => child,
-  });
-  const preparing = output.prepare({}, { sampleRate: 24_000, channels: 1, sampleFormat: "f32le" }, () => {});
-  await nextTurn();
-  child.stdout.emit("data", outputReady());
-  const session = await preparing;
-  await assert.rejects(() => session.write({
-    sequence: 1,
-    sampleRate: 48_000,
-    channels: 1,
-    sampleFormat: "f32le",
-    samplesPerChannel: 480,
-    pcm: Buffer.alloc(480 * 4),
-  }), /does not match/);
-  await session.close();
+  {
+    const child = fakeChild();
+    const output = new MacAudioOutput({
+      helperPath: "/helpers/output",
+      platform: "darwin",
+      exists: () => true,
+      probeHelper: async () => ({
+        supportsJitterBuffer: true,
+        startsWhenQueueFull: true,
+        startupPrebufferMs: 500,
+        queueCapacityFrames: 64,
+        deviceUid: "default-device",
+        deviceName: "Default output",
+        usesDefaultDevice: true,
+        memberDeviceUids: [],
+        memberDeviceUidsVerified: true,
+        isAggregateDevice: false,
+      }),
+      spawnProcess: () => child,
+    });
+    const preparing = output.prepare(
+      {},
+      { sampleRate: 24_000, channels: 1, sampleFormat: "f32le" },
+      () => {},
+    );
+    await nextTurn();
+    child.stdout.emit("data", outputReady());
+    const session = await preparing;
+    await assert.rejects(
+      () =>
+        session.write({
+          sequence: 1,
+          sampleRate: 48_000,
+          channels: 1,
+          sampleFormat: "f32le",
+          samplesPerChannel: 480,
+          pcm: Buffer.alloc(480 * 4),
+        }),
+      /does not match/,
+    );
+    await session.close();
+  }
 });
 
 test("concurrent output probes share one native self-test", async () => {
@@ -155,7 +183,9 @@ test("concurrent output probes share one native self-test", async () => {
     exists: () => true,
     probeHelper: async () => {
       probeCalls += 1;
-      await new Promise((resolve) => { releaseProbe = resolve; });
+      await new Promise((resolve) => {
+        releaseProbe = resolve;
+      });
       return {
         supportsJitterBuffer: true,
         startsWhenQueueFull: true,
@@ -211,139 +241,153 @@ test("macOS output binds a requested recording device by stable UID", async () =
     () => {},
   );
   await nextTurn();
-  child.stdout.emit("data", outputReady({
-    deviceUid: "BlackHole2ch_UID",
-    deviceName: "BlackHole 2ch",
-    usesDefaultDevice: false,
-  }));
+  child.stdout.emit(
+    "data",
+    outputReady({
+      deviceUid: "BlackHole2ch_UID",
+      deviceName: "BlackHole 2ch",
+      usesDefaultDevice: false,
+    }),
+  );
   const session = await preparing;
-  assert.deepEqual(probes, [["--self-test", "--device-uid", "BlackHole2ch_UID"]]);
+  assert.deepEqual(probes, [
+    ["--self-test", "--device-uid", "BlackHole2ch_UID"],
+  ]);
   assert.deepEqual(spawns[0].args, [
-    "--sample-rate", "24000", "--channels", "1", "--device-uid", "BlackHole2ch_UID",
+    "--sample-rate",
+    "24000",
+    "--channels",
+    "1",
+    "--device-uid",
+    "BlackHole2ch_UID",
   ]);
   await session.close();
 });
 
-test("an already-faulted output process is still a successfully quiesced session", async () => {
-  const child = fakeChild();
-  const errors = [];
-  const output = new MacAudioOutput({
-    helperPath: "/helpers/output",
-    platform: "darwin",
-    exists: () => true,
-    probeHelper: async () => ({
-      supportsJitterBuffer: true,
-      startsWhenQueueFull: true,
-      startupPrebufferMs: 500,
-      queueCapacityFrames: 64,
-      deviceUid: "default-device",
-      deviceName: "Default output",
-      usesDefaultDevice: true,
-      memberDeviceUids: [],
-      memberDeviceUidsVerified: true,
-      isAggregateDevice: false,
-    }),
-    spawnProcess: () => child,
-  });
-  const preparing = output.prepare(
-    {},
-    { sampleRate: 24_000, channels: 1, sampleFormat: "f32le" },
-    (error) => errors.push(error),
-  );
-  await nextTurn();
-  child.stdout.emit("data", outputReady());
-  const session = await preparing;
-  child.exitCode = 1;
-  child.emit("exit", 1, null);
-  assert.equal(errors.length, 1);
-  await session.close();
-  await session.close();
-});
+test("output lifecycle quiesces faults and retains failed cleanup for retry", async () => {
+  {
+    const child = fakeChild();
+    const errors = [];
+    const output = new MacAudioOutput({
+      helperPath: "/helpers/output",
+      platform: "darwin",
+      exists: () => true,
+      probeHelper: async () => ({
+        supportsJitterBuffer: true,
+        startsWhenQueueFull: true,
+        startupPrebufferMs: 500,
+        queueCapacityFrames: 64,
+        deviceUid: "default-device",
+        deviceName: "Default output",
+        usesDefaultDevice: true,
+        memberDeviceUids: [],
+        memberDeviceUidsVerified: true,
+        isAggregateDevice: false,
+      }),
+      spawnProcess: () => child,
+    });
+    const preparing = output.prepare(
+      {},
+      { sampleRate: 24_000, channels: 1, sampleFormat: "f32le" },
+      (error) => errors.push(error),
+    );
+    await nextTurn();
+    child.stdout.emit("data", outputReady());
+    const session = await preparing;
+    child.exitCode = 1;
+    child.emit("exit", 1, null);
+    assert.equal(errors.length, 1);
+    await session.close();
+    await session.close();
+  }
 
-test("output close retries termination proof after a failed attempt", async () => {
-  const child = fakeChild();
-  child.stdin.removeAllListeners("finish");
-  let terminationAttempts = 0;
-  const output = new MacAudioOutput({
-    helperPath: "/helpers/output",
-    platform: "darwin",
-    exists: () => true,
-    probeHelper: async () => ({
-      supportsJitterBuffer: true,
-      startsWhenQueueFull: true,
-      startupPrebufferMs: 500,
-      queueCapacityFrames: 64,
-      deviceUid: "default-device",
-      deviceName: "Default output",
-      usesDefaultDevice: true,
-      memberDeviceUids: [],
-      memberDeviceUidsVerified: true,
-      isAggregateDevice: false,
-    }),
-    spawnProcess: () => child,
-    waitForChildExit: async () => {
-      if (child.exitCode !== null || child.signalCode !== null) return;
-      throw new Error("exit proof timed out");
-    },
-    terminateProcess: async () => {
-      terminationAttempts += 1;
-      if (terminationAttempts === 1) throw new Error("termination not proven");
-      child.exitCode = 0;
-      child.emit("exit", 0, null);
-    },
-  });
-  const preparing = output.prepare(
-    {},
-    { sampleRate: 24_000, channels: 1, sampleFormat: "f32le" },
-    () => {},
-  );
-  await nextTurn();
-  child.stdout.emit("data", outputReady());
-  const session = await preparing;
+  {
+    const child = fakeChild();
+    child.stdin.removeAllListeners("finish");
+    let terminationAttempts = 0;
+    const output = new MacAudioOutput({
+      helperPath: "/helpers/output",
+      platform: "darwin",
+      exists: () => true,
+      probeHelper: async () => ({
+        supportsJitterBuffer: true,
+        startsWhenQueueFull: true,
+        startupPrebufferMs: 500,
+        queueCapacityFrames: 64,
+        deviceUid: "default-device",
+        deviceName: "Default output",
+        usesDefaultDevice: true,
+        memberDeviceUids: [],
+        memberDeviceUidsVerified: true,
+        isAggregateDevice: false,
+      }),
+      spawnProcess: () => child,
+      waitForChildExit: async () => {
+        if (child.exitCode !== null || child.signalCode !== null) return;
+        throw new Error("exit proof timed out");
+      },
+      terminateProcess: async () => {
+        terminationAttempts += 1;
+        if (terminationAttempts === 1)
+          throw new Error("termination not proven");
+        child.exitCode = 0;
+        child.emit("exit", 0, null);
+      },
+    });
+    const preparing = output.prepare(
+      {},
+      { sampleRate: 24_000, channels: 1, sampleFormat: "f32le" },
+      () => {},
+    );
+    await nextTurn();
+    child.stdout.emit("data", outputReady());
+    const session = await preparing;
 
-  await assert.rejects(() => session.close(), /termination not proven/);
-  await session.close();
-  assert.equal(terminationAttempts, 2);
-});
+    await assert.rejects(() => session.close(), /termination not proven/);
+    await session.close();
+    assert.equal(terminationAttempts, 2);
+  }
 
-test("failed readiness cleanup returns a retained output session for termination retry", async () => {
-  const child = fakeChild();
-  child.stdin.removeAllListeners("finish");
-  let terminationAttempts = 0;
-  const output = new MacAudioOutput({
-    helperPath: "/helpers/output",
-    platform: "darwin",
-    exists: () => true,
-    probeHelper: async () => ({
-      supportsJitterBuffer: true,
-      startsWhenQueueFull: true,
-      startupPrebufferMs: 500,
-      queueCapacityFrames: 64,
-      deviceUid: "default-device",
-      deviceName: "Default output",
-      usesDefaultDevice: true,
-      memberDeviceUids: [],
-      memberDeviceUidsVerified: true,
-      isAggregateDevice: false,
-    }),
-    spawnProcess: () => child,
-    waitForChildExit: async () => { throw new Error("not exited"); },
-    terminateProcess: async () => {
-      terminationAttempts += 1;
-      if (terminationAttempts === 1) throw new Error("termination not proven");
-      child.exitCode = 0;
-      child.emit("exit", 0, null);
-    },
-  });
-  const preparing = output.prepare(
-    {},
-    { sampleRate: 24_000, channels: 1, sampleFormat: "f32le" },
-    () => {},
-  );
-  await nextTurn();
-  child.stdout.emit("data", outputReady({ sampleRate: 44_100 }));
-  await assert.rejects(
-    async () => {
+  {
+    const child = fakeChild();
+    child.stdin.removeAllListeners("finish");
+    let terminationAttempts = 0;
+    const output = new MacAudioOutput({
+      helperPath: "/helpers/output",
+      platform: "darwin",
+      exists: () => true,
+      probeHelper: async () => ({
+        supportsJitterBuffer: true,
+        startsWhenQueueFull: true,
+        startupPrebufferMs: 500,
+        queueCapacityFrames: 64,
+        deviceUid: "default-device",
+        deviceName: "Default output",
+        usesDefaultDevice: true,
+        memberDeviceUids: [],
+        memberDeviceUidsVerified: true,
+        isAggregateDevice: false,
+      }),
+      spawnProcess: () => child,
+      waitForChildExit: async () => {
+        throw new Error("not exited");
+      },
+      terminateProcess: async () => {
+        terminationAttempts += 1;
+        if (terminationAttempts === 1)
+          throw new Error("termination not proven");
+        child.exitCode = 0;
+        child.emit("exit", 0, null);
+      },
+    });
+    const preparing = output.prepare(
+      {},
+      { sampleRate: 24_000, channels: 1, sampleFormat: "f32le" },
+      () => {},
+    );
+    await nextTurn();
+    child.stdout.emit("data", outputReady({ sampleRate: 44_100 }));
+    await assert.rejects(async () => {
       try {
         await preparing;
       } catch (error) {
@@ -351,57 +395,63 @@ test("failed readiness cleanup returns a retained output session for termination
         await error.outputSession.close();
         throw error;
       }
-    },
-    /termination could not be proven/,
-  );
-  assert.equal(terminationAttempts, 2);
-});
+    }, /termination could not be proven/);
+    assert.equal(terminationAttempts, 2);
+  }
 
-test("a post-ready protocol violation faults the output session", async () => {
-  const child = fakeChild();
-  const errors = [];
-  const output = new MacAudioOutput({
-    helperPath: "/helpers/output",
-    platform: "darwin",
-    exists: () => true,
-    probeHelper: async () => ({
-      supportsJitterBuffer: true,
-      startsWhenQueueFull: true,
-      startupPrebufferMs: 500,
-      queueCapacityFrames: 64,
-      deviceUid: "default-device",
-      deviceName: "Default output",
-      usesDefaultDevice: true,
-      memberDeviceUids: [],
-      memberDeviceUidsVerified: true,
-      isAggregateDevice: false,
-    }),
-    spawnProcess: () => child,
-  });
-  const preparing = output.prepare(
-    {},
-    { sampleRate: 24_000, channels: 1, sampleFormat: "f32le" },
-    (error) => errors.push(error),
-  );
-  await nextTurn();
-  child.stdout.emit("data", outputReady());
-  const session = await preparing;
-  child.stdout.emit("data", encodeAudioFrame({
-    sequence: 0,
-    sampleRate: 24_000,
-    channels: 1,
-    samplesPerChannel: 1,
-    pcm: Buffer.alloc(4),
-  }));
-  assert.equal(errors.length, 1);
-  assert.match(errors[0].message, /unexpected audio frame/);
-  await assert.rejects(() => session.write({
-    sequence: 1,
-    sampleRate: 24_000,
-    channels: 1,
-    sampleFormat: "f32le",
-    samplesPerChannel: 1,
-    pcm: Buffer.alloc(4),
-  }), /closed/);
-  await session.close();
+  {
+    const child = fakeChild();
+    const errors = [];
+    const output = new MacAudioOutput({
+      helperPath: "/helpers/output",
+      platform: "darwin",
+      exists: () => true,
+      probeHelper: async () => ({
+        supportsJitterBuffer: true,
+        startsWhenQueueFull: true,
+        startupPrebufferMs: 500,
+        queueCapacityFrames: 64,
+        deviceUid: "default-device",
+        deviceName: "Default output",
+        usesDefaultDevice: true,
+        memberDeviceUids: [],
+        memberDeviceUidsVerified: true,
+        isAggregateDevice: false,
+      }),
+      spawnProcess: () => child,
+    });
+    const preparing = output.prepare(
+      {},
+      { sampleRate: 24_000, channels: 1, sampleFormat: "f32le" },
+      (error) => errors.push(error),
+    );
+    await nextTurn();
+    child.stdout.emit("data", outputReady());
+    const session = await preparing;
+    child.stdout.emit(
+      "data",
+      encodeAudioFrame({
+        sequence: 0,
+        sampleRate: 24_000,
+        channels: 1,
+        samplesPerChannel: 1,
+        pcm: Buffer.alloc(4),
+      }),
+    );
+    assert.equal(errors.length, 1);
+    assert.match(errors[0].message, /unexpected audio frame/);
+    await assert.rejects(
+      () =>
+        session.write({
+          sequence: 1,
+          sampleRate: 24_000,
+          channels: 1,
+          sampleFormat: "f32le",
+          samplesPerChannel: 1,
+          pcm: Buffer.alloc(4),
+        }),
+      /closed/,
+    );
+    await session.close();
+  }
 });

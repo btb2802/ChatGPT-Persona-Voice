@@ -70,7 +70,7 @@ function recorderFixture(overrides = {}) {
   return { errors, recorder, settings, timers, writes };
 }
 
-test("history recorder keeps short pauses and excludes trailing split silence", () => {
+test("history recorder preserves speech boundaries, stays inert when disabled, and isolates metadata faults", () => {
   const fixture = recorderFixture({ silenceSplitMs: 200 });
   fixture.recorder.accept(audioFrame(0.25));
   fixture.recorder.accept(audioFrame(0));
@@ -82,18 +82,13 @@ test("history recorder keeps short pauses and excludes trailing split silence", 
   assert.equal(fixture.writes[0].voiceName, "Authorized voice");
   assert.equal(fixture.writes[0].sourceName, "ChatGPT");
   assert.deepEqual(fixture.errors, []);
-});
+  const boundaryFixture = recorderFixture();
+  boundaryFixture.recorder.accept(audioFrame(0.2, { itemId: "first" }));
+  boundaryFixture.recorder.accept(audioFrame(0.2, { itemId: "second" }));
+  assert.equal(boundaryFixture.writes.length, 1);
+  boundaryFixture.timers.at(-1).callback();
+  assert.equal(boundaryFixture.writes.length, 2);
 
-test("history recorder flushes item boundaries and idle output", () => {
-  const fixture = recorderFixture();
-  fixture.recorder.accept(audioFrame(0.2, { itemId: "first" }));
-  fixture.recorder.accept(audioFrame(0.2, { itemId: "second" }));
-  assert.equal(fixture.writes.length, 1);
-  fixture.timers.at(-1).callback();
-  assert.equal(fixture.writes.length, 2);
-});
-
-test("history recorder stays inert when disabled and isolates metadata errors", () => {
   const disabled = recorderFixture();
   disabled.settings.saveConvertedAudio = false;
   disabled.recorder.accept(audioFrame(0.4));

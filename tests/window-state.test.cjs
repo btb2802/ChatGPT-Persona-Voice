@@ -11,7 +11,7 @@ const {
 
 const displays = [{ workArea: { x: 0, y: 0, width: 1512, height: 982 } }];
 
-test("window state clamps invalid positions and dimensions", () => {
+test("window state clamps invalid bounds and persists atomically with private permissions", () => {
   assert.deepEqual(normalizeWindowState({
     bounds: { x: 9000, y: 9000, width: 200, height: 100 },
   }, displays), {
@@ -23,9 +23,6 @@ test("window state clamps invalid positions and dimensions", () => {
     bounds: { width: Number.MAX_SAFE_INTEGER, height: Number.MAX_SAFE_INTEGER },
   }, displays);
   assert.deepEqual(state.bounds, { width: 16_384, height: 16_384 });
-});
-
-test("window state is stored atomically with owner-only permissions", () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "codex-web-gpt-window-state-"));
   const file = path.join(root, "window-state.json");
   try {

@@ -53,6 +53,22 @@ Upstreams:
 - <https://github.com/facebook/react/tree/v19.2.8/packages/react-dom>
 - <https://github.com/facebook/react/tree/v19.2.8/packages/scheduler>
 
+## Microsoft Windows audio driver sample
+
+The Windows `Persona Voice Sink` driver source under
+`native/windows/driver/upstream-simpleaudiosample/**` is a modified derivative of Microsoft's
+`Windows-driver-samples/audio/simpleaudiosample` at commit
+`717778a20ba4dd2440fe609f69153a1f8a64f597`.
+
+Upstream: <https://github.com/microsoft/Windows-driver-samples/tree/717778a20ba4dd2440fe609f69153a1f8a64f597/audio/simpleaudiosample>
+
+The upstream code is licensed under the Microsoft Public License (MS-PL). The complete license
+text is retained with the source at `native/windows/driver/MS-PL-LICENSE` and in the packaged notice
+payload at `third_party_licenses/MS-PL-LICENSE`. Persona Voice modifies the sample into a branded
+render-only null sink, removes capture endpoints, adds a fixed ownership marker, and changes the
+device identifiers and package metadata. Microsoft names and trademarks are not used for product
+branding.
+
 ## Seed-VC inference sidecar and model artifacts
 
 The separate Python inference process under `engine/seed-vc` uses the Seed-VC source pinned at
@@ -83,7 +99,7 @@ using a reference.
 
 ### VOICEVOX showcase references
 
-Thirteen references are deterministic concatenations of the three normal-style showcase samples
+Twelve references are deterministic concatenations of the three normal-style showcase samples
 served by the official VOICEVOX 0.25.2 website. `scripts/build-voicevox-references.cjs` records the
 exact source URLs and reproduces the transformation: `001`, `002`, and `003` are concatenated in
 that order and resampled to mono PCM16 at 22.05 kHz. The application does not include the VOICEVOX
@@ -102,7 +118,6 @@ catalog records the following credits and character-specific terms:
 | WhiteCUL | `VOICEVOX:WhiteCUL` | <https://www.whitecul.com/guideline> |
 | Ouka Miko | `VOICEVOX:櫻歌ミコ` | <https://voicevox35miko.studio.site/rule> |
 | Sayo | `VOICEVOX:小夜/SAYO` | <https://316soramegu.wixsite.com/sayo-official/guideline> |
-| Nurse Robo Type T | `VOICEVOX:ナースロボ＿タイプＴ` | <https://www.krnr.top/rules> |
 | Haruka Nana | `VOICEVOX:春歌ナナ` | <https://nanahira.jp/haruka_nana/guideline.html> |
 | Nekotsuka Aru | `VOICEVOX:猫使アル` | <https://nekotukarb.wixsite.com/nekonohako/利用規約> |
 | Manbetsu Hanamaru | `VOICEVOX:満別花丸` | <https://100hanamaru.wixsite.com/manbetsu-hanamaru/rule> |
@@ -137,9 +152,7 @@ inspected as temporary identity references and are not included in this reposito
 | Kotoyomi Nia | `kotoyomi-nia-session-scene.png` · `b5abc219bb028e4a7362b3fb80cc9e60057cfd1558841639b11ff6def785d7d1` | <https://voicevox.hiroshiba.jp/dormitory/kotoyomi_nia/> | <https://commons.nicovideo.jp/works/nc315435> |
 
 Each character and scene remains subject to its linked terms and required credit. The scenes must
-not be presented as official art or endorsement. Nurse Robo Type T intentionally has no generated
-scene: its current official character rules prohibit image-generation AI uses, so the generic card
-remains the fail-closed presentation for that voice.
+not be presented as official art or endorsement.
 
 ### JARVIS community reference
 
@@ -181,15 +194,15 @@ set as `Contents/Resources/LICENSES.chromium.html`; packaging verifies both agai
 Electron distribution. Other target builders retain their platform-standard Electron license
 payloads. Upstream: <https://github.com/electron/electron/tree/v41.10.3>.
 
-## Bun 1.3.11 updater-worker runtime
+## Bun 1.3.14 updater-worker runtime
 
-Packaged desktop artifacts include the pinned Bun 1.3.11 executable solely to run the detached,
+Packaged desktop artifacts include the pinned Bun 1.3.14 executable solely to run the detached,
 checksummed update worker after Electron exits. The following inventory is derived from the upstream
-version-specific notice at <https://github.com/oven-sh/bun/blob/bun-v1.3.11/LICENSE.md>.
+version-specific notice at <https://github.com/oven-sh/bun/blob/bun-v1.3.14/LICENSE.md>.
 
 Bun itself is MIT-licensed. The packaged updater runtime also carries the byte-for-byte upstream
-version-specific notice as `BUN-1.3.11-LICENSE.md`; the source copy is
-`third_party_licenses/BUN-1.3.11-LICENSE.md`.
+version-specific notice as `BUN-1.3.14-LICENSE.md`; the source copy is
+`third_party_licenses/BUN-1.3.14-LICENSE.md`.
 
 ### JavaScriptCore
 
@@ -234,9 +247,9 @@ upstream notice also credits `@kipply` for the Bun name.
 
 ## uv 0.11.14 engine-installer runtime
 
-The macOS package includes uv 0.11.14 solely to install the Seed-VC runtime into private
-application data. uv is dual-licensed under Apache-2.0 or MIT; this distribution uses the MIT
-option. Upstream: <https://github.com/astral-sh/uv/tree/0.11.14>
+Target packages include uv 0.11.14 solely to install the Seed-VC runtime into private application
+data. uv is dual-licensed under Apache-2.0 or MIT; this distribution uses the MIT option. Upstream:
+<https://github.com/astral-sh/uv/tree/0.11.14>
 
 The packaged engine installer also carries the byte-for-byte upstream MIT text as
 `UV-0.11.14-LICENSE-MIT`; the source copy is

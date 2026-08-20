@@ -14,7 +14,7 @@
     "url": "https://github.com/miuuyy/ChatGPT-Persona-Voice/issues"
   },
   "keywords": ["voice-conversion", "seed-vc", "electron", "chatgpt", "codex"],
-  "packageManager": "bun@1.3.11",
+  "packageManager": "bun@1.3.14",
   "engineInstaller": {
     "uvVersion": "0.11.14"
   },
@@ -39,8 +39,8 @@
     "check": "bun run test && bun run build",
     "package": "bun run build:native && bun run test:native && bun run build && bun run scripts/package.cjs",
     "package:mac": "bun run build:native && bun run test:native && bun run build && bun run scripts/package.cjs --mac",
-    "package:win": "bun run build && bun run scripts/package.cjs --win",
-    "package:linux": "bun run build && bun run scripts/package.cjs --linux",
+    "package:win": "bun run build:native && bun run test:native && bun run build && bun run scripts/package.cjs --win",
+    "package:linux": "bun run build:native && bun run test:native && bun run build && bun run scripts/package.cjs --linux",
     "start": "electron ."
   },
   "dependencies": {
@@ -84,6 +84,29 @@
       {
         "from": "build/updater-runtime",
         "to": "updater-runtime"
+      },
+      {
+        "from": "build/engine-installer",
+        "to": "engine-installer"
+      },
+      {
+        "from": "engine/seed-vc",
+        "to": "engine/seed-vc",
+        "filter": ["**/*", "!__pycache__/**"]
+      },
+      {
+        "from": "engine/vendor/seed-vc",
+        "to": "engine/vendor/seed-vc",
+        "filter": [
+          "**/*",
+          "!.git",
+          "!**/__pycache__/**",
+          "!**/*.pyc",
+          "!checkpoints/**",
+          "!.venv/**",
+          "!examples/**",
+          "!campplus_cn_common.bin"
+        ]
       }
     ],
     "mac": {
@@ -122,45 +145,63 @@
         {
           "from": "native/bin/darwin/cpv-atomic-swap",
           "to": "native/darwin/cpv-atomic-swap"
-        },
-        {
-          "from": "build/engine-installer",
-          "to": "engine-installer"
-        },
-        {
-          "from": "engine/seed-vc",
-          "to": "engine/seed-vc",
-          "filter": ["**/*", "!__pycache__/**"]
-        },
-        {
-          "from": "engine/vendor/seed-vc",
-          "to": "engine/vendor/seed-vc",
-          "filter": [
-            "**/*",
-            "!.git",
-            "!**/__pycache__/**",
-            "!**/*.pyc",
-            "!checkpoints/**",
-            "!.venv/**",
-            "!examples/**",
-            "!campplus_cn_common.bin"
-          ]
         }
       ]
     },
     "win": {
       "icon": "assets/icon.png",
-      "target": ["nsis"]
+      "target": ["nsis"],
+      "extraResources": [
+        {
+          "from": "native/bin/win32/cpv-audio-capture.exe",
+          "to": "native/win32/cpv-audio-capture.exe"
+        },
+        {
+          "from": "native/bin/win32/cpv-audio-output.exe",
+          "to": "native/win32/cpv-audio-output.exe"
+        },
+        {
+          "from": "native/bin/win32/cpv-audio-route.exe",
+          "to": "native/win32/cpv-audio-route.exe"
+        },
+        {
+          "from": "native/bin/win32/cpv-driver-manager.exe",
+          "to": "native/win32/cpv-driver-manager.exe"
+        },
+        {
+          "from": "native/bin/win32/driver",
+          "to": "native/win32/driver"
+        }
+      ]
     },
     "linux": {
       "category": "AudioVideo",
       "icon": "assets/icon.png",
-      "target": ["AppImage"]
+      "target": ["AppImage"],
+      "extraResources": [
+        {
+          "from": "native/bin/linux/cpv-audio-capture",
+          "to": "native/linux/cpv-audio-capture"
+        },
+        {
+          "from": "native/bin/linux/cpv-audio-output",
+          "to": "native/linux/cpv-audio-output"
+        },
+        {
+          "from": "native/linux/wireplumber",
+          "to": "native/linux/wireplumber"
+        },
+        {
+          "from": "native/linux/THIRD_PARTY_NOTICES.md",
+          "to": "native/linux/THIRD_PARTY_NOTICES.md"
+        }
+      ]
     },
     "nsis": {
       "oneClick": true,
-      "perMachine": false,
-      "allowElevation": false,
+      "perMachine": true,
+      "allowElevation": true,
+      "include": "installer/windows/installer.nsh",
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true,
       "runAfterFinish": false

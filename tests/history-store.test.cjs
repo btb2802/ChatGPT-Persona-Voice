@@ -47,7 +47,7 @@ test("history stores only internally named WAV files and reads them by opaque id
   assert.throws(() => store.addWav({ audio: Buffer.from("pcm"), durationMs: 1, voiceName: "x", sourceName: "y" }), /WAV/);
 });
 
-test("six-hour cleanup removes expired files and keeps newer segments", (t) => {
+test("history cleanup enforces timed and never-retention semantics", (t) => {
   const root = temporaryDirectory(t);
   const store = createHistoryStore(root);
   const oldEntry = store.addWav({
@@ -69,24 +69,21 @@ test("six-hour cleanup removes expired files and keeps newer segments", (t) => {
   assert.deepEqual(result.entries.map((entry) => entry.id), [newEntry.id]);
   assert.throws(() => store.audio(oldEntry.id), /not found/);
   assert.deepEqual(store.audio(newEntry.id).data, minimalWav(2));
-});
-
-test("never retention preserves entries and clear removes indexed audio", (t) => {
-  const store = createHistoryStore(temporaryDirectory(t));
-  const entry = store.addWav({
+  const neverStore = createHistoryStore(temporaryDirectory(t));
+  const neverEntry = neverStore.addWav({
     audio: minimalWav(),
     createdAt: "2020-01-01T00:00:00.000Z",
     durationMs: 1,
     voiceName: "Voice",
     sourceName: "Source",
   });
-  assert.equal(store.cleanup({ retentionHours: null, now: new Date("2030-01-01") }).removed, 0);
-  assert.equal(store.clear().removed, 1);
-  assert.equal(store.list().length, 0);
-  assert.throws(() => store.audio(entry.id), /not found/);
+  assert.equal(neverStore.cleanup({ retentionHours: null, now: new Date("2030-01-01") }).removed, 0);
+  assert.equal(neverStore.clear().removed, 1);
+  assert.equal(neverStore.list().length, 0);
+  assert.throws(() => neverStore.audio(neverEntry.id), /not found/);
 });
 
-test("startup listing and never-retention cleanup remove orphan and stale temporary WAVs", (t) => {
+test("orphan cleanup survives startup, never retention, and a corrupt index", (t) => {
   const root = temporaryDirectory(t);
   const segments = path.join(root, "segments");
   fs.mkdirSync(segments, { recursive: true });
@@ -103,22 +100,19 @@ test("startup listing and never-retention cleanup remove orphan and stale tempor
   const result = store.cleanup({ retentionHours: null, now: new Date("2030-01-01") });
   assert.equal(result.removed, 1);
   assert.equal(fs.existsSync(path.join(segments, orphan)), false);
-});
-
-test("clear removes unindexed audio even when the history index is corrupt", (t) => {
-  const root = temporaryDirectory(t);
-  const segments = path.join(root, "segments");
-  fs.mkdirSync(segments, { recursive: true });
-  const orphan = "44444444-4444-4444-8444-444444444444.wav";
-  fs.writeFileSync(path.join(segments, orphan), minimalWav(6));
-  fs.writeFileSync(path.join(root, "index.json"), "{ corrupt index");
+  const corruptRoot = temporaryDirectory(t);
+  const corruptSegments = path.join(corruptRoot, "segments");
+  fs.mkdirSync(corruptSegments, { recursive: true });
+  const corruptOrphan = "44444444-4444-4444-8444-444444444444.wav";
+  fs.writeFileSync(path.join(corruptSegments, corruptOrphan), minimalWav(6));
+  fs.writeFileSync(path.join(corruptRoot, "index.json"), "{ corrupt index");
   const recoveries = [];
-  const store = createHistoryStore(root, { onRecovery: (event) => recoveries.push(event) });
-  assert.deepEqual(store.clear(), { removed: 1, entries: [] });
-  assert.equal(fs.existsSync(path.join(segments, orphan)), false);
+  const corruptStore = createHistoryStore(corruptRoot, { onRecovery: (event) => recoveries.push(event) });
+  assert.deepEqual(corruptStore.clear(), { removed: 1, entries: [] });
+  assert.equal(fs.existsSync(path.join(corruptSegments, corruptOrphan)), false);
   assert.equal(recoveries.length, 1);
   assert.equal(recoveries[0].code, "history_index_reset");
-  assert.deepEqual(JSON.parse(fs.readFileSync(path.join(root, "index.json"), "utf8")), {
+  assert.deepEqual(JSON.parse(fs.readFileSync(path.join(corruptRoot, "index.json"), "utf8")), {
     version: 1,
     entries: [],
   });

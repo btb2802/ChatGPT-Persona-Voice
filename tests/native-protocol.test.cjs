@@ -10,72 +10,99 @@ const {
   writeFrame,
 } = require("../electron/native-protocol.cjs");
 
-test("native parser handles split and coalesced protocol frames", () => {
-  const messages = [];
-  const parser = new NativeFrameParser((message) => messages.push(message));
-  const ready = encodeFrame("ready", Buffer.from(JSON.stringify({ type: "ready", helper: "capture" })));
-  const error = encodeFrame("error", Buffer.from(JSON.stringify({ type: "error", message: "no route" })));
-  parser.push(ready.subarray(0, 5));
-  parser.push(Buffer.concat([ready.subarray(5), error]));
-  parser.finish();
-  assert.deepEqual(messages, [
-    { type: "ready", helper: "capture" },
-    { type: "error", message: "no route" },
-  ]);
-});
+test("native framing preserves split JSON lifecycle frames and exact PCM", () => {
+  {
+    const messages = [];
+    const parser = new NativeFrameParser((message) => messages.push(message));
+    const ready = encodeFrame(
+      "ready",
+      Buffer.from(JSON.stringify({ type: "ready", helper: "capture" })),
+    );
+    const error = encodeFrame(
+      "error",
+      Buffer.from(JSON.stringify({ type: "error", message: "no route" })),
+    );
+    parser.push(ready.subarray(0, 5));
+    parser.push(Buffer.concat([ready.subarray(5), error]));
+    parser.finish();
+    assert.deepEqual(messages, [
+      { type: "ready", helper: "capture" },
+      { type: "error", message: "no route" },
+    ]);
+  }
 
-test("native parser carries explicit route lifecycle status", () => {
-  const messages = [];
-  const parser = new NativeFrameParser((message) => messages.push(message));
-  parser.push(encodeFrame("status", Buffer.from(JSON.stringify({
-    type: "status",
-    state: "engaged",
-    originalSuppressed: true,
-    tapActive: true,
-  }))));
-  parser.finish();
-  assert.deepEqual(messages, [{
-    type: "status",
-    state: "engaged",
-    originalSuppressed: true,
-    tapActive: true,
-  }]);
-});
+  {
+    const messages = [];
+    const parser = new NativeFrameParser((message) => messages.push(message));
+    parser.push(
+      encodeFrame(
+        "status",
+        Buffer.from(
+          JSON.stringify({
+            type: "status",
+            state: "engaged",
+            originalSuppressed: true,
+            tapActive: true,
+          }),
+        ),
+      ),
+    );
+    parser.finish();
+    assert.deepEqual(messages, [
+      {
+        type: "status",
+        state: "engaged",
+        originalSuppressed: true,
+        tapActive: true,
+      },
+    ]);
+  }
 
-test("audio protocol round-trips metadata and PCM exactly", () => {
-  const pcm = Buffer.alloc(4 * 2 * 4);
-  for (let index = 0; index < 8; index += 1) pcm.writeFloatLE(index / 8, index * 4);
-  const messages = [];
-  const parser = new NativeFrameParser((message) => messages.push(message));
-  parser.push(encodeAudioFrame({
-    sequence: 7,
-    sampleRate: 24_000,
-    channels: 2,
-    samplesPerChannel: 4,
-    sampleFormat: "f32le",
-    pcm,
-  }));
-  parser.finish();
-  assert.equal(messages.length, 1);
-  assert.deepEqual({ ...messages[0], pcm: Buffer.from(messages[0].pcm) }, {
-    type: "audio",
-    sequence: 7,
-    sampleRate: 24_000,
-    channels: 2,
-    samplesPerChannel: 4,
-    sampleFormat: "f32le",
-    pcm,
-  });
+  {
+    const pcm = Buffer.alloc(4 * 2 * 4);
+    for (let index = 0; index < 8; index += 1)
+      pcm.writeFloatLE(index / 8, index * 4);
+    const messages = [];
+    const parser = new NativeFrameParser((message) => messages.push(message));
+    parser.push(
+      encodeAudioFrame({
+        sequence: 7,
+        sampleRate: 24_000,
+        channels: 2,
+        samplesPerChannel: 4,
+        sampleFormat: "f32le",
+        pcm,
+      }),
+    );
+    parser.finish();
+    assert.equal(messages.length, 1);
+    assert.deepEqual(
+      { ...messages[0], pcm: Buffer.from(messages[0].pcm) },
+      {
+        type: "audio",
+        sequence: 7,
+        sampleRate: 24_000,
+        channels: 2,
+        samplesPerChannel: 4,
+        sampleFormat: "f32le",
+        pcm,
+      },
+    );
+  }
 });
 
 test("audio protocol rejects mismatched byte lengths and truncated streams", () => {
-  assert.throws(() => encodeAudioFrame({
-    sequence: 0,
-    sampleRate: 24_000,
-    channels: 1,
-    samplesPerChannel: 10,
-    pcm: Buffer.alloc(4),
-  }), /PCM byte length/);
+  assert.throws(
+    () =>
+      encodeAudioFrame({
+        sequence: 0,
+        sampleRate: 24_000,
+        channels: 1,
+        samplesPerChannel: 10,
+        pcm: Buffer.alloc(4),
+      }),
+    /PCM byte length/,
+  );
   const parser = new NativeFrameParser(() => {});
   parser.push(encodeFrame("ready", Buffer.from("{}")).subarray(0, 6));
   assert.throws(() => parser.finish(), /truncated/);
@@ -93,7 +120,10 @@ test("native writes resolve after stream acceptance", async () => {
   const stream = new PassThrough();
   const chunks = [];
   stream.on("data", (chunk) => chunks.push(chunk));
-  const frame = encodeFrame("ready", Buffer.from(JSON.stringify({ type: "ready" })));
+  const frame = encodeFrame(
+    "ready",
+    Buffer.from(JSON.stringify({ type: "ready" })),
+  );
   await writeFrame(stream, frame);
   assert.deepEqual(Buffer.concat(chunks), frame);
 });

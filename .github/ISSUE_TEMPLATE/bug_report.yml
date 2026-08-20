@@ -1,12 +1,13 @@
 name: Bug report
-description: Report a reproducible launcher, contract, or supported macOS development-path defect.
+description: Report a reproducible launcher, engine, or target-native audio-path defect.
 title: "[Bug]: "
 body:
   - type: markdown
     attributes:
       value: |
-        The end-to-end relay is currently a source-checkout demo on Apple Silicon macOS 14.2+.
-        Windows/Linux relay blockers and unqualified clean-machine packaged engine setup are known limitations.
+        Relay source paths exist for Apple Silicon macOS and NVIDIA Linux x64; Windows x64 has implemented source/contracts.
+        Linux live proof covers Ubuntu 24.04/WirePlumber 0.4 and Fedora 42/PipeWire 1.4.11/WirePlumber 0.5.14; Windows has no clean physical-host E2E and remains blocked on Microsoft driver signing.
+        Implemented source paths are not supported releases.
         Report sensitive audio, routes, paths, logs, or vulnerabilities through the private security link.
 
   - type: checkboxes
@@ -28,8 +29,9 @@ body:
       options:
         - Apple Silicon macOS 14.2+
         - Intel macOS
-        - Windows
-        - Linux
+        - Windows x64 + NVIDIA (build 20348+)
+        - Linux x64 + NVIDIA (WirePlumber 0.4)
+        - Linux x64 + NVIDIA (WirePlumber 0.5)
         - Other
     validations:
       required: true
@@ -38,8 +40,8 @@ body:
     id: environment
     attributes:
       label: Environment
-      description: OS version, architecture, source commit, Bun/Node versions, and source or packaged run mode.
-      placeholder: "macOS 15.x, arm64, commit abc1234, Bun 1.3.x, Node 22.x, source checkout"
+      description: OS/build, architecture, GPU/driver, source commit, Bun/Node versions, and source or packaged run mode.
+      placeholder: "OS/build, architecture, GPU/driver, audio stack, commit abc1234, Bun 1.3.x, Node 22.x, source or package"
     validations:
       required: true
 

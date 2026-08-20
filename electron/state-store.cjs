@@ -19,7 +19,8 @@ const DEFAULT_SETTINGS = Object.freeze({
   saveConvertedAudio: false,
   recordingBusEnabled: false,
   launchAtLogin: false,
-  keepRunningOnClose: true,
+  keepRunningOnClose: false,
+  windowsManualRouteConfigured: false,
 });
 const DEFAULT_ONBOARDING = Object.freeze({
   complete: false,
@@ -106,6 +107,11 @@ function normalizeSettings(value) {
     ),
     launchAtLogin: booleanSetting(value.launchAtLogin, "launchAtLogin", DEFAULT_SETTINGS.launchAtLogin),
     keepRunningOnClose: booleanSetting(value.keepRunningOnClose, "keepRunningOnClose", DEFAULT_SETTINGS.keepRunningOnClose),
+    windowsManualRouteConfigured: booleanSetting(
+      value.windowsManualRouteConfigured,
+      "windowsManualRouteConfigured",
+      DEFAULT_SETTINGS.windowsManualRouteConfigured,
+    ),
   };
 }
 

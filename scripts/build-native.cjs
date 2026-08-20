@@ -37,10 +37,13 @@ function macosCompilerArguments(source, output, frameworks) {
 }
 
 function buildNative(platform = process.platform) {
-  if (platform !== "darwin") {
-    console.log(`No native helpers are built on ${platform}; platform adapters remain fail-closed.`);
-    return [];
+  if (platform === "linux") {
+    return require("./linux-build-native.cjs").buildLinuxNative(platform);
   }
+  if (platform === "win32") {
+    return require("./windows-build-native.cjs").buildWindowsNative({ platform });
+  }
+  if (platform !== "darwin") throw new Error(`Native audio helpers do not support ${platform}`);
   const outputDirectory = path.join(PROJECT_ROOT, "native", "bin", "darwin");
   fs.mkdirSync(outputDirectory, { recursive: true });
   const builds = [

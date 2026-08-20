@@ -12,23 +12,17 @@ function capabilities({ desktop = true, suppression = true, owned = false } = {}
   };
 }
 
-test("desktop mode requires both capture and original suppression", () => {
+test("source modes require their real capture, suppression, and owned-session capabilities", () => {
   assert.equal(sourceModeCapability("desktop-application", capabilities()).ready, true);
   assert.equal(sourceModeCapability("desktop-application", capabilities({ suppression: false })).code, "suppression_missing");
   assert.throws(
     () => requireSourceMode("desktop-application", capabilities({ desktop: false })),
     (error) => error.code === "source_mode_unavailable" && /capture missing/.test(error.message),
   );
-});
-
-test("owned session remains unavailable until its real adapter is ready", () => {
   assert.throws(
     () => requireSourceMode("codex-app-server", capabilities()),
     (error) => error.code === "source_mode_unavailable" && /bridge missing/.test(error.message),
   );
   assert.equal(requireSourceMode("codex-app-server", capabilities({ owned: true })), "codex-app-server");
-});
-
-test("unknown source modes fail explicitly", () => {
   assert.throws(() => sourceModeCapability("identity-fallback", capabilities()), /Unknown audio source mode/);
 });

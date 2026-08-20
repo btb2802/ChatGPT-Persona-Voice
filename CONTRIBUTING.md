@@ -14,9 +14,13 @@ working happy path.
 - Report suspected vulnerabilities privately according to [SECURITY.md](SECURITY.md).
 - Follow the [Code of Conduct](CODE_OF_CONDUCT.md).
 
-The currently testable end-to-end target is Apple Silicon macOS 14.2+. Cross-platform shell,
-renderer, discovery, and contract improvements are welcome, but Windows/Linux must continue to
-report the relay as blocked until their full route is implemented and qualified.
+The source relay is implemented and live-accepted for Apple Silicon macOS 14.2+ and NVIDIA Linux
+x64. Windows x64 has implemented source/contracts but no clean physical-host E2E evidence. Linux
+live evidence covers Ubuntu 24.04/WirePlumber 0.4 and Fedora 42/PipeWire 1.4.11/WirePlumber 0.5.14.
+Windows development must continue to report the clean-binary blocker until the owned sink has a
+Microsoft-signed driver and its explicit Volume Mixer assignment/restoration lifecycle is qualified.
+Linux clean packaged recovery and broader distribution coverage also remain. Do not turn
+implemented source into a support claim.
 
 ## Repository layout
 
@@ -30,6 +34,9 @@ The source tree keeps product media, voice references, and the conversion engine
 | `voices/references/` | Short, clean WAV references used to condition conversion |
 | `engine/seed-vc/` | The CPVE adapter, immutable model lock, verification, and installer inputs |
 | `engine/vendor/seed-vc/` | Pinned upstream Seed-VC source; never edit it as ordinary launcher code |
+| `native/macos/` | Core Audio capture/output and atomic update helper |
+| `native/linux/` | PipeWire capture/output and WirePlumber 0.4/0.5 policy assets |
+| `native/windows/` | WASAPI helpers, route verifier, driver manager, and owned sink source |
 | `scripts/` | Reproducible setup, build, packaging, and smoke commands |
 
 Reference WAVs are not trained voice models. Model weights, Python environments, caches, build
@@ -44,7 +51,7 @@ bun install --frozen-lockfile
 bun run check
 ```
 
-Apple Silicon macOS contributors working on the data path should also run the applicable commands:
+Data-path contributors on a qualified host should also run the applicable commands:
 
 ```bash
 bun run setup:engine
@@ -52,6 +59,18 @@ bun run build:native
 bun run test:native
 bun run smoke:engine
 ```
+
+Linux route work must also inspect/install the managed policy in a dedicated user session and
+record the exact WirePlumber family:
+
+```bash
+node scripts/linux-audio-policy.cjs inspect
+node scripts/linux-audio-policy.cjs install --reload
+```
+
+Windows route work must state whether a Microsoft-signed Persona Voice Sink was used. An unsigned
+Hardware Dev Center submission build is source/build evidence only; do not enable test-signing or
+call it a clean-machine result. Record every explicit Volume Mixer assignment and restoration.
 
 Live capture and jitter smokes are opt-in because they affect local permissions/audio devices:
 
@@ -91,8 +110,9 @@ bun run build:renderer
 Report exact commands and outcomes. “Tests pass” without scope/host information is insufficient for
 native, permissioned, engine, or performance changes.
 
-CI runs these non-permissioned checks on macOS, Windows, and Linux. A green Windows/Linux CI job
-means the shared shell contracts build and pass tests; it does not mean their audio relays exist.
+CI runs these non-permissioned checks plus target-native build/self-tests on macOS, Windows, and
+Linux. A green job proves those build/protocol contracts. It does not prove a live desktop route,
+CUDA performance, Microsoft driver signing, Linux policy recovery, or supported release status.
 
 ## Adding a target voice
 

@@ -4,7 +4,7 @@ const assert = require("node:assert/strict");
 const test = require("node:test");
 const { linuxDesktopEntry } = require("../electron/autostart.cjs");
 
-test("Linux autostart launches the stable AppImage invisibly", () => {
+test("Linux autostart launches the stable AppImage invisibly and escapes desktop-entry fields", () => {
   const entry = linuxDesktopEntry(
     { getPath: () => "/tmp/transient-electron" },
     "/home/example/Applications/Codex Persona Voice.AppImage",
@@ -16,13 +16,10 @@ test("Linux autostart launches the stable AppImage invisibly", () => {
   );
   assert.match(entry, /^Terminal=false$/m);
   assert.match(entry, /^X-GNOME-Autostart-enabled=true$/m);
-});
-
-test("Linux desktop entry escapes field codes and shell-sensitive characters", () => {
-  const entry = linuxDesktopEntry(
+  const escapedEntry = linuxDesktopEntry(
     { getPath: () => "/tmp/transient-electron" },
     "/home/example/100% `$ ready/Voice.AppImage",
   );
-  assert.match(entry, /100%% \\`\\\$ ready/);
-  assert.doesNotMatch(entry, /100% `\$/);
+  assert.match(escapedEntry, /100%% \\`\\\$ ready/);
+  assert.doesNotMatch(escapedEntry, /100% `\$/);
 });

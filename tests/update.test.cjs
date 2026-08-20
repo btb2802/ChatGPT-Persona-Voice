@@ -18,19 +18,16 @@ const {
   verifyChecksumSignature,
 } = require("../electron/update.cjs");
 
-test("release comparison and Persona Voice platform assets are strict", () => {
+test("release selection binds strict versions, platform assets, checksums, signatures, and URLs", () => {
   assert.equal(compareVersions("1.1.5", "1.1.4"), 1);
   assert.equal(compareVersions("1.1.4", "1.1.4"), 0);
   assert.equal(compareVersions("1.1.3", "1.1.4"), -1);
   assert.equal(compareVersions("1.2.0", "1.1.99"), 1);
   assert.equal(releaseAssetName("1.2.0", "darwin", "arm64"), "codex-persona-voice-1.2.0-mac-arm64.zip");
   assert.equal(releaseAssetName("1.2.0", "darwin", "x64"), "codex-persona-voice-1.2.0-mac-x64.zip");
-  assert.equal(releaseAssetName("1.2.0", "win32", "x64"), "codex-persona-voice-1.2.0-win-x64.exe");
+  assert.equal(releaseAssetName("1.2.0", "win32", "x64"), null);
   assert.equal(releaseAssetName("1.2.0", "linux", "x64"), "codex-persona-voice-1.2.0-linux-x64.AppImage");
   assert.equal(releaseAssetName("1.2.0", "linux", "arm64"), null);
-});
-
-test("checksums and release URLs bind the exact repository asset", () => {
   const hash = "a".repeat(64);
   const checksums = `${hash}  launcher.zip\n`;
   assert.equal(expectedChecksum(checksums, "launcher.zip"), hash);

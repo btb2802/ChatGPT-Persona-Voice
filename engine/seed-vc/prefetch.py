@@ -11,11 +11,19 @@ import sys
 
 from huggingface_hub import hf_hub_download
 
+RUNTIME_PROFILES = (
+    "darwin-arm64-mps",
+    "windows-x64-cuda130",
+    "linux-x64-cuda130",
+)
+
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser()
     parser.add_argument("--runtime-root", required=True, type=Path)
     parser.add_argument("--lock", required=True, type=Path)
+    parser.add_argument("--runtime-profile", required=True, choices=RUNTIME_PROFILES)
+    parser.add_argument("--requirements-lock", required=True, type=Path)
     return parser.parse_args()
 
 
@@ -32,6 +40,7 @@ def main() -> None:
     runtime_root = args.runtime_root.resolve()
     model_root = runtime_root / "models"
     lock_path = args.lock.resolve()
+    requirements_path = args.requirements_lock.resolve()
     lock = json.loads(lock_path.read_text(encoding="utf-8"))
     if lock.get("schemaVersion") != 1:
         raise SystemExit("Unsupported model lock schema")
@@ -60,7 +69,9 @@ def main() -> None:
                 "bytes": resolved.stat().st_size,
             })
     manifest = {
-        "schemaVersion": 1,
+        "schemaVersion": 2,
+        "runtimeProfile": args.runtime_profile,
+        "requirementsSha256": digest(requirements_path),
         "modelLockSha256": digest(lock_path),
         "seedVcCommit": lock["seedVcCommit"],
         "python": f"{sys.version_info.major}.{sys.version_info.minor}",

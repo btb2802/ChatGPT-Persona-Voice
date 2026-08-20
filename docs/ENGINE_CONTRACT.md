@@ -108,14 +108,20 @@ still become active. Correlation requires both the matching id and response type
 only `result`, `prime` only `prime`, `reset` only `reset`, and `shutdown` only `shutdown`; control
 acknowledgements must have an empty body.
 
-## Current Seed-VC profile
+## Current Seed-VC profiles
 
-The checked-in adapter is intentionally fixed:
+The checked-in adapter has three explicit host profiles and no CPU fallback:
+
+| Profile id | Host | Accelerator | Requirements lock | Estimated installed / minimum free |
+| --- | --- | --- | --- | ---: |
+| `darwin-arm64-mps` | Apple Silicon macOS 14.2+ | Apple MPS | `requirements-macos-arm64.lock.txt` | 2.5 GiB / 6 GiB |
+| `windows-x64-cuda130` | Windows x64, build 20348+ for the audio route | NVIDIA CUDA 13.0 | `requirements-windows-x64-cuda.lock.txt` | 9 GiB / 15 GiB |
+| `linux-x64-cuda130` | Linux x64 | NVIDIA CUDA 13.0 | `requirements-linux-x64-cuda.lock.txt` | 11 GiB / 15 GiB |
+
+All three profiles share the fixed conversion contract:
 
 | Property | Value |
 | --- | --- |
-| Supported host | Apple Silicon macOS |
-| Accelerator | Apple MPS |
 | Model | Seed-VC tiny realtime |
 | Diffusion steps | 10 |
 | Source format | 8–192 kHz, 1–2 channel `f32le` |
@@ -136,9 +142,11 @@ match the launched profile. The acoustic mel/semantic prompt participates in eve
 diffusion block, so it remains at the upstream-qualified 3 seconds. The CAMPPlus speaker embedding
 is computed once from up to 17 seconds (`styleSecondsUsed` reports the available duration). This
 lets longer clean references improve speaker identity without lengthening every conversion block.
-The qualified profile computes that one-time CAMPPlus embedding on CPU (`styleDevice: "cpu"`) to
-avoid a long variable-shape MPS graph compilation during cold start, then moves only the finished
-embedding to MPS. Diffusion, semantic conversion, and vocoding remain on Apple MPS.
+The qualified profiles compute that one-time CAMPPlus embedding on CPU (`styleDevice: "cpu"`) to
+avoid a long variable-shape accelerator compilation during cold start, then move only the finished
+embedding to the selected MPS or CUDA device. Diffusion, semantic conversion, and vocoding remain
+on that declared accelerator. A CUDA Ready frame must additionally report a non-empty device name,
+two-integer compute capability, and the exact `cu130` backend.
 
 The worker resamples and downmixes inside the pinned Seed-VC implementation, applies speech/silence
 handling and SOLA state, and operates with Hugging Face/Transformers offline flags after setup.
@@ -155,7 +163,7 @@ Local benchmark artifacts can inform development, but they are not an end-to-end
 The 300 ms block, 3-second startup discard, and native output prebuffer all affect user-observed
 timing and must be represented in any future benchmark.
 
-### Local smoke observation (not an SLO)
+### macOS local smoke observation (not an SLO)
 
 One Apple M4 Pro run of the current development smoke on 2026-08-09 reported:
 

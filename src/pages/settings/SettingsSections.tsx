@@ -1,3 +1,4 @@
+import { useEffect, useState } from "react";
 import { Icon } from "../../icons";
 import {
   formatMessage,
@@ -8,11 +9,14 @@ import {
 import type {
   AudioSource,
   LauncherSnapshot,
+  PlatformAudioSetupState,
   Settings,
+  UserSettingKey,
   VoicePreset,
 } from "../../types";
 import { Switch } from "../../components/AppShell";
 import {
+  errorMessage,
   formatBytes,
   platformName,
   type SettingsSectionId,
@@ -24,6 +28,8 @@ import {
   VoiceChoice,
 } from "./SettingsPrimitives";
 
+type PlatformAudioAction = "refresh" | "install" | "activate" | "remove";
+
 export type SettingsSectionProps = {
   snapshot: LauncherSnapshot;
   section: SettingsSectionId;
@@ -31,7 +37,7 @@ export type SettingsSectionProps = {
   sources: AudioSource[];
   sourceLoading: boolean;
   playingKey: string | null;
-  onSetting: <Key extends keyof Settings>(key: Key, value: Settings[Key]) => void;
+  onSetting: <Key extends UserSettingKey>(key: Key, value: Settings[Key]) => void;
   onInstallEngine: () => void;
   onCancelEngineInstall: () => void;
   onRemoveEngine: () => void;
@@ -70,7 +76,50 @@ export function SettingsSections({
   onOpenRepository,
 }: SettingsSectionProps) {
   const { locale, messages } = useI18n();
+  const [platformAudioSetup, setPlatformAudioSetup] =
+    useState<PlatformAudioSetupState>(snapshot.platformAudioSetup);
+  const [platformAudioAction, setPlatformAudioAction] =
+    useState<PlatformAudioAction | null>(null);
+  const [platformAudioError, setPlatformAudioError] = useState<string | null>(null);
   const { settings, capabilities } = snapshot;
+
+  useEffect(() => {
+    setPlatformAudioSetup(snapshot.platformAudioSetup);
+  }, [snapshot.platformAudioSetup]);
+
+  async function runPlatformAudioAction(action: PlatformAudioAction) {
+    const bridge = window.codexPersonaVoice;
+    if (!bridge) {
+      setPlatformAudioError(messages.platformAudio.bridgeUnavailable);
+      return;
+    }
+    setPlatformAudioAction(action);
+    setPlatformAudioError(null);
+    try {
+      const result = action === "install"
+        ? await bridge.installPlatformAudioSetup()
+        : action === "activate"
+          ? await bridge.activatePlatformAudioSetup()
+          : action === "remove"
+            ? await bridge.removePlatformAudioSetup()
+            : await bridge.refreshPlatformAudioSetup();
+      setPlatformAudioSetup(result);
+    } catch (cause) {
+      setPlatformAudioError(errorMessage(cause));
+    } finally {
+      setPlatformAudioAction(null);
+    }
+  }
+
+  const platformAudioStatusLabel = {
+    ready: messages.platformAudio.statusReady,
+    "action-required": messages.platformAudio.statusActionRequired,
+    installing: messages.platformAudio.statusInstalling,
+    error: messages.platformAudio.statusError,
+    unavailable: messages.platformAudio.statusUnavailable,
+  }[platformAudioSetup.status];
+  const platformAudioBusy =
+    busy || platformAudioAction !== null || platformAudioSetup.status === "installing";
   const desktopReady =
     capabilities.desktopCapture.ready && capabilities.suppression.ready;
   const selectedVoice = snapshot.voices.find(
@@ -520,6 +569,113 @@ export function SettingsSections({
             </SettingRow>
           </div>
         </div>
+        {snapshot.app.platform === "linux" || snapshot.app.platform === "win32" ? (
+          <div className="settings-block platform-audio-settings">
+            <div className="settings-block-heading">
+              <h3>{messages.platformAudio.settingsTitle}</h3>
+              <p>{messages.platformAudio.settingsBody}</p>
+            </div>
+            {platformAudioError ? (
+              <div className="settings-callout is-warning" role="alert">
+                <Icon name="alert" />
+                <div>
+                  <strong>{messages.platformAudio.statusError}</strong>
+                  <p>{platformAudioError}</p>
+                </div>
+              </div>
+            ) : null}
+            <div
+              aria-live="polite"
+              className={`engine-package platform-audio-package is-${platformAudioSetup.status}`}
+            >
+              <div className="engine-package-copy">
+                <strong>
+                  {messages.platformAudio.statusLabel}: {platformAudioStatusLabel}
+                </strong>
+                <p>{platformAudioSetup.detail}</p>
+                <small>{platformAudioSetup.code}</small>
+              </div>
+              <div className="engine-actions platform-audio-actions">
+                {snapshot.app.platform === "linux" ? (
+                  <>
+                    {platformAudioSetup.canInstall || platformAudioAction === "install" ? (
+                      <button
+                        className="button-secondary"
+                        disabled={platformAudioBusy}
+                        onClick={() => void runPlatformAudioAction("install")}
+                        type="button"
+                      >
+                        {platformAudioAction === "install"
+                          ? messages.platformAudio.installingRoute
+                          : messages.platformAudio.installRoute}
+                      </button>
+                    ) : null}
+                    {platformAudioSetup.canRemove || platformAudioAction === "remove" ? (
+                      <button
+                        className="button-secondary danger-text"
+                        disabled={platformAudioBusy}
+                        onClick={() => void runPlatformAudioAction("remove")}
+                        type="button"
+                      >
+                        {platformAudioAction === "remove"
+                          ? messages.platformAudio.removingRoute
+                          : messages.platformAudio.removeRoute}
+                      </button>
+                    ) : null}
+                  </>
+                ) : (
+                  <button
+                    className="button-secondary"
+                    disabled={platformAudioBusy || !platformAudioSetup.canActivate}
+                    onClick={() => void runPlatformAudioAction("activate")}
+                    type="button"
+                  >
+                    {platformAudioAction === "activate"
+                      ? messages.platformAudio.verifyingRoute
+                      : messages.platformAudio.verifyRoute}
+                  </button>
+                )}
+                {snapshot.app.platform === "win32" ||
+                !(
+                  platformAudioSetup.canInstall ||
+                  platformAudioSetup.canRemove ||
+                  platformAudioAction === "install" ||
+                  platformAudioAction === "remove"
+                ) ? (
+                  <button
+                    className="button-secondary"
+                    disabled={platformAudioBusy}
+                    onClick={() => void runPlatformAudioAction("refresh")}
+                    type="button"
+                  >
+                    {platformAudioAction === "refresh"
+                      ? messages.platformAudio.checking
+                      : messages.platformAudio.checkAgain}
+                  </button>
+                ) : null}
+              </div>
+            </div>
+            {snapshot.app.platform === "win32" &&
+            platformAudioSetup.requiresRouteAssignment ? (
+              <div className="settings-footnote platform-audio-instructions">
+                <Icon name="app" />
+                <span>
+                  {messages.platformAudio.windowsOpenAppStep}{" "}
+                  {messages.platformAudio.windowsAssignStep}{" "}
+                  {messages.platformAudio.windowsVerifyStep}
+                </span>
+              </div>
+            ) : null}
+            <div className="settings-footnote platform-audio-notice">
+              <Icon name={snapshot.app.platform === "linux" ? "refresh" : "lock"} />
+              <span>
+                {snapshot.app.platform === "linux"
+                  ? messages.platformAudio.linuxSettingsNotice
+                  : messages.platformAudio.windowsSettingsNotice}
+              </span>
+            </div>
+          </div>
+        ) : null}
         {snapshot.app.platform === "darwin" ? (
           <div className="settings-block">
             <div className="settings-block-heading">
@@ -639,26 +795,50 @@ export function SettingsSections({
               count: new Intl.NumberFormat(locale).format(snapshot.engineDiagnostics.steps),
             })}
           </code>
+          <span>{messages.settings.diagnostics.runtimeProfile}</span>
+          <code>
+            {snapshot.engineDiagnostics.runtimeProfile ?? messages.common.notReported}
+            {snapshot.engineDiagnostics.backend
+              ? ` · ${snapshot.engineDiagnostics.backend}`
+              : ""}
+          </code>
+          <span>{messages.settings.diagnostics.accelerator}</span>
+          <code>
+            {snapshot.engineDiagnostics.cudaDeviceName ??
+              snapshot.engineDiagnostics.device ??
+              messages.common.notReported}
+          </code>
           <span>{messages.settings.diagnostics.lastInference}</span>
           <code>
             {snapshot.engineDiagnostics.lastInferenceMs === null
               ? messages.settings.diagnostics.noConvertedBlock
               : `${snapshot.engineDiagnostics.lastInferenceMs.toFixed(1)} ms`}
           </code>
-          <span>{messages.settings.diagnostics.mpsCurrent}</span>
+          <span>{messages.settings.diagnostics.acceleratorMemory}</span>
           <code>
-            {snapshot.engineDiagnostics.mpsCurrentAllocatedBytes === null
+            {(snapshot.engineDiagnostics.device === "cuda"
+              ? snapshot.engineDiagnostics.cudaAllocatedBytes
+              : snapshot.engineDiagnostics.mpsCurrentAllocatedBytes) === null
               ? messages.common.notReported
               : formatBytes(
-                  snapshot.engineDiagnostics.mpsCurrentAllocatedBytes,
+                  snapshot.engineDiagnostics.device === "cuda"
+                    ? snapshot.engineDiagnostics.cudaAllocatedBytes!
+                    : snapshot.engineDiagnostics.mpsCurrentAllocatedBytes!,
                   locale,
                 )}
           </code>
-          <span>{messages.settings.diagnostics.mpsDriver}</span>
+          <span>{messages.settings.diagnostics.acceleratorReserved}</span>
           <code>
-            {snapshot.engineDiagnostics.mpsDriverAllocatedBytes === null
+            {(snapshot.engineDiagnostics.device === "cuda"
+              ? snapshot.engineDiagnostics.cudaReservedBytes
+              : snapshot.engineDiagnostics.mpsDriverAllocatedBytes) === null
               ? messages.common.notReported
-              : formatBytes(snapshot.engineDiagnostics.mpsDriverAllocatedBytes, locale)}
+              : formatBytes(
+                  snapshot.engineDiagnostics.device === "cuda"
+                    ? snapshot.engineDiagnostics.cudaReservedBytes!
+                    : snapshot.engineDiagnostics.mpsDriverAllocatedBytes!,
+                  locale,
+                )}
           </code>
           <span>{messages.settings.diagnostics.convertedBlocks}</span>
           <code>{snapshot.engineDiagnostics.convertedBlocks}</code>

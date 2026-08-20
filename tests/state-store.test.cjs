@@ -13,14 +13,14 @@ function temporaryDirectory(t) {
   return directory;
 }
 
-test("state store disables history by default and preselects six-hour retention", (t) => {
+test("state store initializes safe defaults and migrates pre-onboarding state", (t) => {
   const directory = temporaryDirectory(t);
   const filePath = path.join(directory, "state.json");
   const store = createStateStore(filePath);
   assert.equal(store.read().settings.retentionHours, 6);
   assert.equal(store.read().settings.saveConvertedAudio, false);
   assert.equal(store.read().settings.recordingBusEnabled, false);
-  assert.equal(store.read().settings.keepRunningOnClose, true);
+  assert.equal(store.read().settings.keepRunningOnClose, false);
   assert.equal(store.read().settings.uiLocale, null);
   assert.equal(store.read().settings.sourceMode, "desktop-application");
   assert.equal(store.read().settings.selectedVoiceId, "voicevox-shikoku-metan-normal");
@@ -31,9 +31,22 @@ test("state store disables history by default and preselects six-hour retention"
     xOpened: false,
   });
   assert.ok(fs.existsSync(filePath));
+
+  const legacyDirectory = temporaryDirectory(t);
+  const legacyFilePath = path.join(legacyDirectory, "state.json");
+  fs.writeFileSync(legacyFilePath, JSON.stringify({
+    version: 1,
+    settings: createStateStore(path.join(legacyDirectory, "defaults.json")).read().settings,
+  }));
+  assert.deepEqual(createStateStore(legacyFilePath).read().onboarding, {
+    complete: false,
+    githubOpened: false,
+    xOpened: false,
+  });
+  assert.equal(createStateStore(legacyFilePath).read().settings.uiLocale, null);
 });
 
-test("state store validates updates and persists them atomically", (t) => {
+test("state store validates and atomically persists settings, identity, and onboarding", (t) => {
   const directory = temporaryDirectory(t);
   const filePath = path.join(directory, "state.json");
   const store = createStateStore(filePath);
@@ -51,12 +64,19 @@ test("state store validates updates and persists them atomically", (t) => {
   assert.throws(() => store.setSetting("uiLocale", "fr"), /Interface language/);
   assert.throws(() => store.setSetting("uiLocale", ""), /Interface language/);
   assert.throws(() => store.setSetting("imaginary", true), /Unknown setting/);
-});
 
-test("onboarding progress persists across ordinary settings updates", (t) => {
-  const directory = temporaryDirectory(t);
-  const filePath = path.join(directory, "state.json");
-  const store = createStateStore(filePath);
+  for (const locale of ["en", "ja", "zh-CN"]) {
+    store.setSetting("uiLocale", locale);
+    assert.equal(createStateStore(filePath).read().settings.uiLocale, locale);
+  }
+  store.setSetting("uiLocale", null);
+  assert.equal(store.read().settings.uiLocale, null);
+
+  assert.throws(() => store.setSetting("sourceId", "process:darwin:test"), /selected together/);
+  const current = store.read().settings;
+  store.replaceSettings({ ...current, sourceId: "process:darwin:test", sourceName: "ChatGPT" });
+  assert.equal(store.read().settings.sourceName, "ChatGPT");
+
   store.setOnboarding({ githubOpened: true });
   store.setSetting("retentionHours", 24);
   store.setOnboarding({ xOpened: true, complete: true });
@@ -67,43 +87,6 @@ test("onboarding progress persists across ordinary settings updates", (t) => {
   });
   assert.throws(() => store.setOnboarding({ githubOpened: "yes" }), /must be a boolean/);
   assert.throws(() => store.setOnboarding({ imaginary: true }), /Unknown onboarding field/);
-});
-
-test("state files from before onboarding default to an incomplete first run", (t) => {
-  const directory = temporaryDirectory(t);
-  const filePath = path.join(directory, "state.json");
-  fs.writeFileSync(filePath, JSON.stringify({
-    version: 1,
-    settings: createStateStore(path.join(directory, "defaults.json")).read().settings,
-  }));
-  assert.deepEqual(createStateStore(filePath).read().onboarding, {
-    complete: false,
-    githubOpened: false,
-    xOpened: false,
-  });
-  assert.equal(createStateStore(filePath).read().settings.uiLocale, null);
-});
-
-test("interface language starts unselected and accepts only the three explicit locales", (t) => {
-  const directory = temporaryDirectory(t);
-  const filePath = path.join(directory, "state.json");
-  const store = createStateStore(filePath);
-  assert.equal(store.read().settings.uiLocale, null);
-  for (const locale of ["en", "ja", "zh-CN"]) {
-    store.setSetting("uiLocale", locale);
-    assert.equal(createStateStore(filePath).read().settings.uiLocale, locale);
-  }
-  store.setSetting("uiLocale", null);
-  assert.equal(store.read().settings.uiLocale, null);
-});
-
-test("paired source identity cannot be half-written", (t) => {
-  const directory = temporaryDirectory(t);
-  const store = createStateStore(path.join(directory, "state.json"));
-  assert.throws(() => store.setSetting("sourceId", "process:darwin:test"), /selected together/);
-  const current = store.read().settings;
-  store.replaceSettings({ ...current, sourceId: "process:darwin:test", sourceName: "ChatGPT" });
-  assert.equal(store.read().settings.sourceName, "ChatGPT");
 });
 
 test("corrupt persisted state fails explicitly", (t) => {

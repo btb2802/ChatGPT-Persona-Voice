@@ -141,41 +141,79 @@ function probePlatformCapabilities({
         : "The native converted-audio output helper is not built",
     };
   } else if (platform === "linux") {
-    const requiredTools = ["pw-dump", "pw-cli", "pw-link"];
+    const requiredTools = ["pw-dump", "wireplumber"];
     const tools = Object.fromEntries(requiredTools.map((tool) => [
       tool,
       findExecutable(tool, { platform, environment, exists }),
     ]));
     const pipeWireReady = Object.values(tools).every(Boolean);
+    const captureBuilt = typeof helperPaths.capture === "string" && exists(helperPaths.capture);
+    const outputBuilt = typeof helperPaths.output === "string" && exists(helperPaths.output);
     base.pipeWireTools = tools;
     base.desktopCapture = {
       possible: pipeWireReady,
-      ready: false,
-      code: pipeWireReady ? "pipewire_capture_adapter_missing" : "pipewire_tools_missing",
-      detail: pipeWireReady
-        ? "PipeWire is discoverable; the PCM capture adapter is not bundled"
-        : "pw-dump, pw-cli, and pw-link must all be installed",
+      ready: pipeWireReady && captureBuilt,
+      code: !pipeWireReady ? "pipewire_tools_missing"
+        : captureBuilt ? "ready" : "linux_capture_helper_missing",
+      detail: !pipeWireReady
+        ? "pw-dump and WirePlumber must be installed"
+        : captureBuilt
+          ? "The native PipeWire capture helper is built; runtime policy is verified separately"
+          : "The native PipeWire capture helper is not built",
     };
     base.suppression = {
       possible: pipeWireReady,
       ready: false,
-      code: pipeWireReady ? "pipewire_isolated_route_missing" : "pipewire_tools_missing",
+      code: pipeWireReady && captureBuilt ? "linux_policy_probe_required" :
+        pipeWireReady ? "linux_capture_helper_missing" : "pipewire_tools_missing",
       detail: pipeWireReady
-        ? "PipeWire can host an isolated route; route ownership is not implemented"
-        : "An isolated route requires the PipeWire command-line tools",
+        ? "The owned WirePlumber ingress policy must pass its live activation probe"
+        : "An isolated route requires pw-dump and WirePlumber",
+    };
+    base.output = {
+      ready: outputBuilt,
+      code: outputBuilt ? "ready" : "linux_output_helper_missing",
+      detail: outputBuilt
+        ? "The native bounded PipeWire output helper is built"
+        : "The native PipeWire output helper is not built",
     };
   } else if (platform === "win32") {
+    const build = Number(String(release).split(".").at(-1));
+    const supported = Number.isInteger(build) && build >= 20_348;
+    const captureBuilt = supported && typeof helperPaths.capture === "string" && exists(helperPaths.capture);
+    const routeBuilt = supported && typeof helperPaths.route === "string" && exists(helperPaths.route);
+    const outputBuilt = supported && typeof helperPaths.output === "string" && exists(helperPaths.output);
+    base.windowsBuild = Number.isInteger(build) ? build : null;
     base.desktopCapture = {
-      possible: true,
-      ready: false,
-      code: "wasapi_capture_helper_missing",
-      detail: "WASAPI process loopback is feasible; the PCM helper is not bundled",
+      possible: supported,
+      ready: captureBuilt,
+      code: !supported ? "windows_build_20348_required"
+        : captureBuilt ? "ready" : "windows_capture_helper_missing",
+      detail: !supported
+        ? "Process-scoped WASAPI loopback requires Windows build 20348 or newer"
+        : captureBuilt
+          ? "The native process-scoped WASAPI capture helper is built"
+          : "The native WASAPI capture helper is not built",
     };
     base.suppression = {
-      possible: false,
+      possible: supported,
       ready: false,
-      code: "windows_virtual_endpoint_required",
-      detail: "WASAPI loopback cannot mute the original route; a verified virtual endpoint is required",
+      code: routeBuilt ? "windows_sink_probe_required" :
+        supported ? "windows_route_helper_missing" : "windows_build_20348_required",
+      detail: routeBuilt
+        ? "The signed Persona Voice Sink and selected app route must pass their live proof"
+        : supported
+          ? "The native Windows route verifier is not built"
+          : "The Windows virtual-route profile requires build 20348 or newer",
+    };
+    base.output = {
+      ready: outputBuilt,
+      code: outputBuilt ? "ready" : supported ? "windows_output_helper_missing" : "windows_build_20348_required",
+      detail: outputBuilt
+        ? "The native bounded WASAPI output helper is built"
+        : supported
+          ? "The native WASAPI output helper is not built"
+          : "The Windows output profile requires build 20348 or newer",
     };
   }
 

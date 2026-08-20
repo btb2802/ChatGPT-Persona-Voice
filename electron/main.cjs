@@ -21,15 +21,23 @@ const {
 const { getAutostart, setAutostart } = require("./autostart.cjs");
 const { createHistoryStore } = require("./history-store.cjs");
 const { ConvertedHistoryRecorder } = require("./history-recorder.cjs");
-const { EngineInstaller, resolveEngineInstallerPaths } = require("./engine-installer.cjs");
+const {
+  EngineInstaller,
+  resolveEngineInstallerPaths,
+  resolveEngineStoragePaths,
+} = require("./engine-installer.cjs");
 const { appendBoundedLine, createLogger } = require("./logging.cjs");
 const { MacAudioOutput } = require("./macos-audio-output.cjs");
 const { MacProcessRoute } = require("./macos-process-route.cjs");
+const { LinuxAudioOutput } = require("./linux-audio-output.cjs");
+const linuxAudioPolicy = require("./linux-audio-policy.cjs");
+const { LinuxProcessRoute } = require("./linux-process-route.cjs");
 const { resolveNativeHelperPath } = require("./native-helper.cjs");
 const { PipelineRuntime } = require("./pipeline-runtime.cjs");
+const { PlatformAudioSetupController } = require("./platform-audio-setup.cjs");
 const { probePlatformCapabilities } = require("./platform-capabilities.cjs");
 const { createRelayPowerController } = require("./relay-power.cjs");
-const { createRuntimeAdapters } = require("./runtime-adapters.cjs");
+const { OBS_RECORDING_DEVICE_UID, createRuntimeAdapters } = require("./runtime-adapters.cjs");
 const { StoppedMutationGate } = require("./stopped-mutation-gate.cjs");
 const { SeedVcEngine, resolveSeedVcPaths } = require("./seed-vc-engine.cjs");
 const { listAudioSources } = require("./source-discovery.cjs");
@@ -37,6 +45,7 @@ const { requireSourceMode } = require("./source-mode.cjs");
 const { createStateStore } = require("./state-store.cjs");
 const { createUpdateController } = require("./update.cjs");
 const { VoiceCatalog } = require("./voice-catalog.cjs");
+const { createWindowsIntegration } = require("./windows-integration.cjs");
 const { MIN_WINDOW_BOUNDS, readWindowState, trackWindowState } = require("./window-state.cjs");
 
 const PRODUCT_NAME = "Codex Persona Voice";
@@ -109,6 +118,9 @@ let lastRuntimeState = null;
 let stoppedMutationGate = null;
 let updateController = null;
 let relayPower = null;
+let platformAudioSetup = null;
+let windowsIntegration = null;
+let windowsRecoveryTimer = null;
 
 function send(channel, value) {
   if (mainWindow && !mainWindow.isDestroyed() && !mainWindow.webContents.isDestroyed()) {
@@ -251,6 +263,33 @@ const TRAY_COPY = Object.freeze({
   "zh-CN": { open: "打开 Persona Voice", active: "语音中继运行中", quit: "退出" },
 });
 
+const WINDOWS_RESTORE_COPY = Object.freeze({
+  und: {
+    title: "Restore the Windows audio route",
+    message: "Restore ChatGPT/Codex output before quitting Persona Voice.",
+    detail: "In Windows Settings > System > Sound > Volume mixer, set the selected app Output back to Default or your physical listening device. Then confirm here.",
+    buttons: ["Cancel", "Open Volume Mixer", "I've restored it"],
+  },
+  en: {
+    title: "Restore the Windows audio route",
+    message: "Restore ChatGPT/Codex output before quitting Persona Voice.",
+    detail: "In Windows Settings > System > Sound > Volume mixer, set the selected app Output back to Default or your physical listening device. Then confirm here.",
+    buttons: ["Cancel", "Open Volume Mixer", "I've restored it"],
+  },
+  ja: {
+    title: "Windows の音声ルートを戻す",
+    message: "Persona Voice を終了する前に ChatGPT/Codex の出力先を戻してください。",
+    detail: "Windows 設定 > システム > サウンド > 音量ミキサーで、対象アプリの出力を「既定」または物理スピーカーに戻し、ここで確認してください。",
+    buttons: ["キャンセル", "音量ミキサーを開く", "元に戻しました"],
+  },
+  "zh-CN": {
+    title: "恢复 Windows 音频路由",
+    message: "退出 Persona Voice 前，请恢复 ChatGPT/Codex 的输出设备。",
+    detail: "在 Windows 设置 > 系统 > 声音 > 音量混合器中，将所选应用的输出改回“默认”或物理扬声器，然后在此确认。",
+    buttons: ["取消", "打开音量混合器", "已恢复"],
+  },
+});
+
 function refreshTray() {
   if (!tray) return;
   const locale = stateStore?.read().settings.uiLocale;
@@ -280,6 +319,96 @@ function createTray() {
   }
 }
 
+function capabilitiesWithPlatformAudioSetup() {
+  const setup = platformAudioSetup?.getState();
+  if (!setup || !["linux", "win32"].includes(process.platform)) return capabilities;
+  const ready = setup.status === "ready";
+  return {
+    ...capabilities,
+    suppression: {
+      possible: true,
+      ready,
+      code: ready ? "ready" : setup.code,
+      detail: ready ? setup.detail : setup.detail,
+    },
+  };
+}
+
+function windowsStandbyHandlers() {
+  return {
+    onError(error) {
+      platformAudioSetup?.routeError(error);
+      logger?.error("windows.standby_route_failed", {
+        code: error?.code,
+        message: error instanceof Error ? error.message : String(error),
+      });
+      if (error?.code === "source_process_exited") scheduleWindowsStandbyRecovery();
+      void (async () => {
+        if (runtime?.snapshot().state === "stopped") {
+          await runtime.inspect(stateStore.read().settings);
+        }
+        await broadcastSnapshot();
+      })().catch(() => {});
+    },
+    onStatus(status) {
+      logger?.info("windows.standby_route_state", {
+        state: status?.state,
+        reason: status?.reason,
+      });
+    },
+  };
+}
+
+function scheduleWindowsStandbyRecovery() {
+  if (!windowsIntegration || windowsRecoveryTimer || quitRequested || quitting) return;
+  windowsRecoveryTimer = setTimeout(async () => {
+    windowsRecoveryTimer = null;
+    if (quitRequested || quitting || !windowsIntegration) return;
+    try {
+      const settings = stateStore.read().settings;
+      const processes = await windowsIntegration.rawProcessRoute.resolveProcesses(settings);
+      if (!Array.isArray(processes?.pids) || processes.pids.length === 0) {
+        scheduleWindowsStandbyRecovery();
+        return;
+      }
+      const lifecycle = windowsIntegration.routeLifecycle.snapshot();
+      if (lifecycle.routeHeld && lifecycle.errorCode === "source_process_exited") {
+        await windowsIntegration.routeLifecycle.recoverStandbyAfterSourceRestart(
+          settings,
+          windowsStandbyHandlers(),
+        );
+      } else if (!lifecycle.routeHeld) {
+        const activated = await platformAudioSetup.activate(settings, windowsStandbyHandlers());
+        if (activated.status !== "ready") {
+          const error = new Error(activated.detail);
+          error.code = activated.code;
+          throw error;
+        }
+      } else if (!lifecycle.standbyActive) {
+        throw new Error("The retained Windows route cannot enter standby automatically");
+      }
+      await platformAudioSetup.inspect(settings);
+      await runtime.inspect(settings);
+      await broadcastSnapshot();
+      logger.info("windows.standby_route_recovered");
+    } catch (error) {
+      platformAudioSetup?.routeError(error);
+      logger?.warn("windows.standby_route_recovery_failed", {
+        code: error?.code,
+        message: error instanceof Error ? error.message : String(error),
+      });
+      await broadcastSnapshot().catch(() => {});
+    }
+  }, 1_000);
+  windowsRecoveryTimer.unref?.();
+}
+
+function requireMutableSourceRoute() {
+  if (windowsIntegration?.routeLifecycle.snapshot().manualRestoreRequired) {
+    throw windowsIntegration.routeLifecycle.manualRestoreError();
+  }
+}
+
 async function buildSnapshot() {
   const state = stateStore.read();
   const runtimeSnapshot = runtime.snapshot();
@@ -296,13 +425,14 @@ async function buildSnapshot() {
     settings: state.settings,
     autostart: getAutostart(app),
     capabilities: engineCheck
-      ? { ...capabilities, engine: {
+      ? { ...capabilitiesWithPlatformAudioSetup(), engine: {
           ready: engineCheck.ready,
-          possible: process.platform === "darwin" && process.arch === "arm64",
+          possible: voiceEngine.diagnostics().runtimeProfile !== null,
           code: engineCheck.code,
           detail: engineCheck.detail,
         } }
-      : capabilities,
+      : capabilitiesWithPlatformAudioSetup(),
+    platformAudioSetup: platformAudioSetup.getState(),
     runtime: runtimeSnapshot,
     engineInstallation: engineInstaller.getState(),
     engineDiagnostics: voiceEngine.diagnostics(),
@@ -371,6 +501,42 @@ function registerIpc() {
     return state.onboarding;
   });
   handle("voice:refresh-readiness", () => refreshReadiness());
+  handle("voice:platform-audio-setup-refresh", async () => {
+    const result = await platformAudioSetup.inspect(stateStore.read().settings);
+    if (runtime.snapshot().state === "stopped") await runtime.inspect(stateStore.read().settings);
+    await broadcastSnapshot();
+    return result;
+  });
+  handle("voice:platform-audio-setup-install", async () => {
+    return stoppedMutationGate.run("platform audio setup", async () => {
+      const result = await platformAudioSetup.install(stateStore.read().settings);
+      await runtime.inspect(stateStore.read().settings);
+      await broadcastSnapshot();
+      return result;
+    });
+  });
+  handle("voice:platform-audio-setup-activate", async () => {
+    return stoppedMutationGate.run("platform audio route activation", async () => {
+      if (!windowsIntegration) throw new Error("Windows audio route activation is unavailable");
+      stateStore.setSetting("windowsManualRouteConfigured", true);
+      windowsIntegration.routeLifecycle.markManualRouteConfigured();
+      const result = await platformAudioSetup.activate(
+        stateStore.read().settings,
+        windowsStandbyHandlers(),
+      );
+      await runtime.inspect(stateStore.read().settings);
+      await broadcastSnapshot();
+      return result;
+    });
+  });
+  handle("voice:platform-audio-setup-remove", async () => {
+    return stoppedMutationGate.run("platform audio setup removal", async () => {
+      const result = await platformAudioSetup.remove();
+      await runtime.inspect(stateStore.read().settings);
+      await broadcastSnapshot();
+      return result;
+    });
+  });
   handle("voice:engine-install", async () => {
     return stoppedMutationGate.run("engine package installation", async () => {
       await voiceEngine.shutdown();
@@ -403,7 +569,15 @@ function registerIpc() {
   });
   handle("voice:set-setting", async (_event, key, value) => {
     return stoppedMutationGate.run("settings update", async () => {
-      if (["launchAtLogin", "sourceMode", "sourceId", "sourceName", "selectedVoiceId", "selectedVoiceName"].includes(key)) {
+      if ([
+        "launchAtLogin",
+        "sourceMode",
+        "sourceId",
+        "sourceName",
+        "selectedVoiceId",
+        "selectedVoiceName",
+        "windowsManualRouteConfigured",
+      ].includes(key)) {
         throw new Error(`Use the dedicated operation for setting ${String(key)}`);
       }
       const state = stateStore.setSetting(key, value);
@@ -424,7 +598,8 @@ function registerIpc() {
   });
   handle("voice:select-source-mode", async (_event, mode) => {
     return stoppedMutationGate.run("source-mode update", async () => {
-      requireSourceMode(mode, capabilities);
+      requireMutableSourceRoute();
+      requireSourceMode(mode, capabilitiesWithPlatformAudioSetup());
       const current = stateStore.read().settings;
       stateStore.replaceSettings({ ...current, sourceMode: mode });
       await runtime.inspect(stateStore.read().settings);
@@ -434,6 +609,7 @@ function registerIpc() {
   });
   handle("voice:select-source", async (_event, source) => {
     return stoppedMutationGate.run("source selection", async () => {
+      requireMutableSourceRoute();
       if (source === null) {
         const current = stateStore.read().settings;
         stateStore.replaceSettings({ ...current, sourceId: null, sourceName: null });
@@ -484,6 +660,12 @@ function registerIpc() {
   });
   handle("voice:start", async () => {
     stoppedMutationGate.assertCanStart();
+    const setup = platformAudioSetup.getState();
+    if (["linux", "win32"].includes(process.platform) && setup.status !== "ready") {
+      const error = new Error(setup.detail);
+      error.code = setup.code;
+      throw error;
+    }
     historyRecorder.discard();
     relayPower.start();
     try {
@@ -560,6 +742,38 @@ function startCleanupTimer() {
   cleanupTimer.unref?.();
 }
 
+async function restoreWindowsRouteBeforeQuit() {
+  if (!windowsIntegration?.routeLifecycle.snapshot().manualRestoreRequired) return true;
+  const pending = await windowsIntegration.routeLifecycle.beginManualRestore();
+  if (!pending.required) return true;
+  showMainWindow();
+  const locale = stateStore.read().settings.uiLocale ?? "und";
+  const copy = WINDOWS_RESTORE_COPY[locale] || WINDOWS_RESTORE_COPY.und;
+  for (;;) {
+    const confirmation = await dialog.showMessageBox(mainWindow, {
+      type: "warning",
+      title: copy.title,
+      message: copy.message,
+      detail: copy.detail,
+      buttons: copy.buttons,
+      defaultId: 1,
+      cancelId: 0,
+      noLink: true,
+    });
+    if (confirmation.response === 0) {
+      await windowsIntegration.routeLifecycle.cancelManualRestore();
+      return false;
+    }
+    if (confirmation.response === 1) {
+      await shell.openExternal("ms-settings:apps-volume");
+      continue;
+    }
+    await windowsIntegration.routeLifecycle.completeManualRestore({ userConfirmed: true });
+    stateStore.setSetting("windowsManualRouteConfigured", false);
+    return true;
+  }
+}
+
 function requestQuit() {
   if (quitting) return Promise.resolve(true);
   if (quitPromise) return quitPromise;
@@ -570,6 +784,7 @@ function requestQuit() {
       await stoppedMutationGate?.waitForIdle();
       const runtimeState = runtime?.snapshot().state;
       if (runtimeState && runtimeState !== "stopped") await runtime.stop();
+      if (!await restoreWindowsRouteBeforeQuit()) return false;
       await voiceEngine?.shutdown();
       relayPower?.stop();
       historyRecorder?.flush();
@@ -578,6 +793,8 @@ function requestQuit() {
       cleanupTimer = null;
       if (diagnosticsBroadcastTimer) clearTimeout(diagnosticsBroadcastTimer);
       diagnosticsBroadcastTimer = null;
+      if (windowsRecoveryTimer) clearTimeout(windowsRecoveryTimer);
+      windowsRecoveryTimer = null;
       tray?.destroy();
       tray = null;
       mainWindow?.destroy();
@@ -664,9 +881,16 @@ async function start() {
       selectedVoiceName: selectedVoice.name,
     });
   }
-  const engineRuntimeRoot = app.isPackaged
-    ? path.join(userDataDirectory, "engine", "seed-vc")
-    : path.join(projectRoot, "runtime", "seed-vc");
+  const engineStorage = resolveEngineStoragePaths({
+    packaged: app.isPackaged,
+    platform: process.platform,
+    environment: process.env,
+    projectRoot,
+    userDataDirectory,
+    userDataOverridden: Boolean(configuredUserData),
+    productDirectory: PRODUCT_NAME,
+  });
+  const engineRuntimeRoot = engineStorage.runtimeRoot;
   voiceEngine = new SeedVcEngine({
     paths: resolveSeedVcPaths({
       isPackaged: app.isPackaged,
@@ -684,6 +908,9 @@ async function start() {
       resourcesPath: process.resourcesPath,
       projectRoot,
       runtimeRoot: engineRuntimeRoot,
+      pythonRoot: engineStorage.pythonRoot,
+      cacheRoot: engineStorage.cacheRoot,
+      tempRoot: engineStorage.tempRoot,
     }),
     logger,
     publish: () => {
@@ -705,19 +932,69 @@ async function start() {
     isPackaged: app.isPackaged,
     resourcesPath: process.resourcesPath,
   });
+  const routeHelperPath = process.platform === "win32"
+    ? resolveNativeHelperPath("route", {
+        isPackaged: app.isPackaged,
+        resourcesPath: process.resourcesPath,
+      })
+    : null;
+  const driverManagerHelperPath = process.platform === "win32"
+    ? resolveNativeHelperPath("driverManager", {
+        isPackaged: app.isPackaged,
+        resourcesPath: process.resourcesPath,
+      })
+    : null;
   capabilities = probePlatformCapabilities({
-    helperPaths: { capture: captureHelperPath, output: outputHelperPath },
+    helperPaths: { capture: captureHelperPath, output: outputHelperPath, route: routeHelperPath },
   });
-  const macProcessRoute = process.platform === "darwin"
-    ? new MacProcessRoute({ helperPath: captureHelperPath, logger })
-    : null;
-  const macAudioOutput = process.platform === "darwin"
-    ? new MacAudioOutput({ helperPath: outputHelperPath, logger })
-    : null;
+  let processRoute = null;
+  let audioOutput = null;
+  if (process.platform === "darwin") {
+    processRoute = new MacProcessRoute({ helperPath: captureHelperPath, logger });
+    audioOutput = new MacAudioOutput({ helperPath: outputHelperPath, logger });
+  } else if (process.platform === "linux") {
+    processRoute = new LinuxProcessRoute({ helperPath: captureHelperPath, logger });
+    audioOutput = new LinuxAudioOutput({ helperPath: outputHelperPath, logger });
+  } else if (process.platform === "win32") {
+    windowsIntegration = createWindowsIntegration({
+      captureHelperPath,
+      outputHelperPath,
+      routeHelperPath,
+      driverManagerHelperPath,
+      logger,
+      lifecycleOptions: {
+        manualRouteConfigured: stateStore.read().settings.windowsManualRouteConfigured,
+        onManualRouteConfigured: () => {
+          if (!stateStore.read().settings.windowsManualRouteConfigured) {
+            stateStore.setSetting("windowsManualRouteConfigured", true);
+          }
+        },
+      },
+    });
+    processRoute = windowsIntegration.processRoute;
+    audioOutput = windowsIntegration.audioOutput;
+  }
+  platformAudioSetup = new PlatformAudioSetupController({
+    platform: process.platform,
+    linuxPolicy: process.platform === "linux" ? linuxAudioPolicy : null,
+    linuxProcessRoute: process.platform === "linux" ? processRoute : null,
+    windowsIntegration,
+    logger,
+    publish: () => {
+      if (!runtime) return;
+      void broadcastSnapshot().catch((error) => {
+        logger.warn("platform_audio_setup.broadcast_failed", {
+          message: error instanceof Error ? error.message : String(error),
+        });
+      });
+    },
+  });
   const adapters = createRuntimeAdapters(capabilities, () => stateStore.read().settings, {
-    macProcessRoute,
-    macAudioOutput,
+    processRoute,
+    audioOutput,
+    recordingBusDeviceUid: process.platform === "darwin" ? OBS_RECORDING_DEVICE_UID : null,
     voiceEngine,
+    getPlatformAudioSetup: () => platformAudioSetup.getState(),
   });
   historyRecorder = new ConvertedHistoryRecorder({
     historyStore,
@@ -733,6 +1010,10 @@ async function start() {
   runtime.on("changed", (value) => {
     refreshTray();
     if (value.state === "stopped") relayPower.stop();
+    if (value.state === "stopped" &&
+        windowsIntegration?.routeLifecycle.snapshot().errorCode === "source_process_exited") {
+      scheduleWindowsStandbyRecovery();
+    }
     send("voice:runtime-changed", value);
     if (value.state !== lastRuntimeState) {
       const event = value.state === "faulted" ? "runtime.faulted" : "runtime.state_changed";
@@ -750,6 +1031,10 @@ async function start() {
     }
     if (value.state === "armed" || value.state === "faulted") historyRecorder.flush();
   });
+  await platformAudioSetup.inspect(stateStore.read().settings);
+  if (windowsIntegration && stateStore.read().settings.windowsManualRouteConfigured) {
+    scheduleWindowsStandbyRecovery();
+  }
   await refreshReadiness({ broadcast: false });
 
   const persisted = stateStore.read().settings;

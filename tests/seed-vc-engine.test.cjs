@@ -12,6 +12,7 @@ const {
   SeedVcEngine,
   buildWorkerEnvironment,
   resolveSeedVcPaths,
+  resolveSeedVcRuntimeProfile,
 } = require("../electron/seed-vc-engine.cjs");
 
 class FakeWorker extends EventEmitter {
@@ -25,6 +26,11 @@ class FakeWorker extends EventEmitter {
     styleSeconds = 17,
     styleSecondsUsed = 8,
     styleDevice = "cpu",
+    runtimeProfile = "darwin-arm64-mps",
+    device = "mps",
+    backend = "mps",
+    cudaDeviceName = null,
+    cudaCapability = null,
     resetResponseType = "reset",
     resetResponseBody = Buffer.alloc(0),
     afterReady = null,
@@ -84,6 +90,11 @@ class FakeWorker extends EventEmitter {
         type: "ready",
         protocolVersion: 1,
         engine: "seed-vc-tiny-realtime",
+        runtimeProfile,
+        device,
+        backend,
+        ...(cudaDeviceName ? { cudaDeviceName } : {}),
+        ...(cudaCapability ? { cudaCapability } : {}),
         sampleRate: 22_050,
         channels: 1,
         sampleFormat: "f32le",
@@ -119,6 +130,8 @@ function fixture({
   waitForProcessExit,
   promptSeconds,
   styleSeconds,
+  platform = "darwin",
+  arch = "arm64",
 } = {}) {
   let worker = null;
   const spawns = [];
@@ -139,13 +152,18 @@ function fixture({
     },
   });
   const lockSha256 = crypto.createHash("sha256").update(lockText).digest("hex");
+  const requirementsText = "fixture-runtime-lock\n";
+  const requirementsSha256 = crypto.createHash("sha256").update(requirementsText).digest("hex");
+  const profile = resolveSeedVcRuntimeProfile(platform, arch);
   const engine = new SeedVcEngine({
     paths: {
+      profile,
       pythonPath: "/runtime/python",
       workerPath: "/engine/worker.py",
       seedRoot: "/engine/seed-vc",
       runtimeRoot: "/runtime",
       modelLockPath: "/engine/model-lock.json",
+      requirementsPath: `/engine/${profile?.requirementsFile || "requirements-unsupported.lock.txt"}`,
       installManifestPath: "/runtime/install-manifest.json",
     },
     voiceCatalog: {
@@ -154,17 +172,21 @@ function fixture({
         return voice;
       },
     },
-    platform: "darwin",
-    arch: "arm64",
+    platform,
+    arch,
     exists: () => true,
-    readFile: (filePath) => filePath.endsWith("model-lock.json")
-      ? lockText
-      : JSON.stringify({
-        schemaVersion: 1,
+    readFile: (filePath) => {
+      if (filePath.endsWith("model-lock.json")) return lockText;
+      if (filePath.includes("requirements-") && filePath.endsWith(".lock.txt")) return requirementsText;
+      return JSON.stringify({
+        schemaVersion: 2,
+        runtimeProfile: profile?.id,
+        requirementsSha256,
         seedVcCommit: "pinned",
         modelLockSha256: lockSha256,
         files: Array(7).fill({}),
-      }),
+      });
+    },
     spawnProcess: (executable, args, options) => {
       spawns.push({ executable, args, options });
       worker = new FakeWorker(workerOptions);
@@ -217,6 +239,9 @@ test("Seed-VC discards the first three seconds, then emits bounded 20 ms output 
   assert.equal(value.engine.lastInferenceMs, 123.4);
   assert.deepEqual(value.engine.diagnostics(), {
     profile: "seed-vc-tiny-realtime",
+    runtimeProfile: "darwin-arm64-mps",
+    device: "mps",
+    backend: "mps",
     workerState: "ready",
     active: true,
     voiceId: "licensed-voice",
@@ -235,6 +260,9 @@ test("Seed-VC discards the first three seconds, then emits bounded 20 ms output 
     mpsCurrentAllocatedBytes: 1_024,
     mpsDriverAllocatedBytes: 2_048,
     mpsRecommendedMaxBytes: 4_096,
+    cudaAllocatedBytes: null,
+    cudaReservedBytes: null,
+    cudaDeviceName: null,
   });
   assert.ok(value.diagnostics.length >= 3);
   await session.reset();
@@ -259,6 +287,51 @@ test("Seed-VC probe blocks unsupported hosts and missing voice selection", async
   })).code, "target_voice_state_invalid");
 });
 
+test("Windows and Linux x64 require and validate an explicit CUDA worker profile", async () => {
+  for (const [platform, runtimeProfile] of [
+    ["win32", "windows-x64-cuda130"],
+    ["linux", "linux-x64-cuda130"],
+  ]) {
+    const value = fixture({
+      platform,
+      arch: "x64",
+      workerOptions: {
+        runtimeProfile,
+        device: "cuda",
+        backend: "cu130",
+        cudaDeviceName: "Fixture NVIDIA GPU",
+        cudaCapability: [8, 9],
+      },
+    });
+    const settings = { selectedVoiceId: "licensed-voice", selectedVoiceName: "Licensed Voice" };
+    assert.equal((await value.engine.probe(settings)).ready, true);
+    const session = await value.engine.prepare(settings, {
+      sampleRate: 48_000,
+      channels: 2,
+      sampleFormat: "f32le",
+    });
+    assert.equal(value.engine.diagnostics().runtimeProfile, runtimeProfile);
+    assert.equal(value.engine.diagnostics().device, "cuda");
+    assert.equal(value.engine.diagnostics().cudaDeviceName, "Fixture NVIDIA GPU");
+    assert.equal(value.spawns[0].args.at(value.spawns[0].args.indexOf("--device") + 1), "cuda");
+    await session.close();
+    await value.engine.shutdown();
+  }
+});
+
+test("x64 macOS and ARM Windows/Linux expose no implicit CPU engine", async () => {
+  for (const [platform, arch] of [
+    ["darwin", "x64"],
+    ["win32", "arm64"],
+    ["linux", "arm64"],
+  ]) {
+    const value = fixture({ platform, arch });
+    const readiness = await value.engine.probe({ selectedVoiceId: "licensed-voice" });
+    assert.equal(readiness.code, "seed_vc_platform_unavailable");
+    assert.match(readiness.detail, /CPU inference is not a qualified realtime profile/);
+  }
+});
+
 test("packaged shell directs missing runtimes to the in-app engine package", async () => {
   const value = fixture();
   value.engine.paths.packaged = true;
@@ -274,6 +347,8 @@ test("packaged shell directs missing runtimes to the in-app engine package", asy
     isPackaged: true,
     resourcesPath: "/App/Contents/Resources",
     runtimeRoot: "/user-data/engine/seed-vc",
+    platform: "darwin",
+    arch: "arm64",
   }).packaged, true);
 });
 
@@ -317,9 +392,28 @@ test("Seed-VC worker starts in isolated Python with injection variables removed"
   const styleIndex = value.spawns[0].args.indexOf("--style-seconds");
   assert.notEqual(styleIndex, -1);
   assert.equal(value.spawns[0].args[styleIndex + 1], "17");
+  assert.equal(value.spawns[0].args.at(value.spawns[0].args.indexOf("--runtime-profile") + 1), "darwin-arm64-mps");
+  assert.equal(value.spawns[0].args.at(value.spawns[0].args.indexOf("--device") + 1), "mps");
+  assert.equal(value.spawns[0].args.at(value.spawns[0].args.indexOf("--requirements-lock") + 1), "/engine/requirements-macos-arm64.lock.txt");
   assert.equal(value.spawns[0].options.env.PYTHONNOUSERSITE, "1");
   await session.close();
   await value.engine.shutdown();
+});
+
+test("Windows worker isolation preserves only required system bootstrap variables", () => {
+  const environment = buildWorkerEnvironment({
+    SYSTEMROOT: "C:\\Windows",
+    WINDIR: "C:\\Windows",
+    COMSPEC: "C:\\Windows\\System32\\cmd.exe",
+    PATHEXT: ".EXE;.CMD",
+    PATH: "C:\\attacker",
+    PYTHONPATH: "C:\\injected",
+    CUDA_VISIBLE_DEVICES: "",
+  }, "C:\\runtime", "win32");
+  assert.equal(environment.PATH, "C:\\Windows\\System32;C:\\Windows;C:\\Windows\\System32\\Wbem");
+  assert.equal(environment.SYSTEMROOT, "C:\\Windows");
+  assert.equal(environment.PYTHONPATH, undefined);
+  assert.equal(environment.CUDA_VISIBLE_DEVICES, undefined);
 });
 
 test("Seed-VC prompt duration is explicit and worker readiness must match it", async () => {
@@ -339,6 +433,8 @@ test("Seed-VC rejects mismatched long-reference worker profiles", async () => {
   for (const options of [
     { styleSeconds: 10, workerOptions: { styleSeconds: 15 } },
     { workerOptions: { styleDevice: "mps" } },
+    { workerOptions: { backend: "cu130" } },
+    { workerOptions: { runtimeProfile: "linux-x64-cuda130", device: "cuda", backend: "cu130" } },
   ]) {
     const value = fixture(options);
     await assert.rejects(() => value.engine.prepare(

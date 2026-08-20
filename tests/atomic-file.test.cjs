@@ -5,7 +5,7 @@ const {
   renameAtomicFile,
 } = require("../electron/atomic-file.cjs");
 
-test("atomic replacement retries bounded transient Windows file locks", () => {
+test("atomic replacement retries only bounded transient Windows file locks", () => {
   const waits = [];
   let attempts = 0;
   renameAtomicFile("source", "destination", {
@@ -25,34 +25,29 @@ test("atomic replacement retries bounded transient Windows file locks", () => {
 
   assert.equal(attempts, 4);
   assert.deepEqual(waits, WINDOWS_RENAME_RETRY_DELAYS_MS.slice(0, 3));
-});
-
-test("atomic replacement fails closed after its bounded Windows retry budget", () => {
-  const waits = [];
-  let attempts = 0;
+  const exhaustedWaits = [];
+  let exhaustedAttempts = 0;
   assert.throws(() => renameAtomicFile("source", "destination", {
     platform: "win32",
     rename() {
-      attempts += 1;
+      exhaustedAttempts += 1;
       const error = new Error("still locked");
       error.code = "EPERM";
       throw error;
     },
     wait(milliseconds) {
-      waits.push(milliseconds);
+      exhaustedWaits.push(milliseconds);
     },
   }), /still locked/);
 
-  assert.equal(attempts, WINDOWS_RENAME_RETRY_DELAYS_MS.length + 1);
-  assert.deepEqual(waits, WINDOWS_RENAME_RETRY_DELAYS_MS);
-});
+  assert.equal(exhaustedAttempts, WINDOWS_RENAME_RETRY_DELAYS_MS.length + 1);
+  assert.deepEqual(exhaustedWaits, WINDOWS_RENAME_RETRY_DELAYS_MS);
 
-test("atomic replacement never retries a structural filesystem failure", () => {
-  let attempts = 0;
+  let structuralAttempts = 0;
   assert.throws(() => renameAtomicFile("source", "destination", {
     platform: "win32",
     rename() {
-      attempts += 1;
+      structuralAttempts += 1;
       const error = new Error("missing parent");
       error.code = "ENOENT";
       throw error;
@@ -61,5 +56,5 @@ test("atomic replacement never retries a structural filesystem failure", () => {
       assert.fail("structural errors must not be retried");
     },
   }), /missing parent/);
-  assert.equal(attempts, 1);
+  assert.equal(structuralAttempts, 1);
 });

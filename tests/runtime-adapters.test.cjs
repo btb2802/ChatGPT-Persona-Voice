@@ -4,6 +4,33 @@ const assert = require("node:assert/strict");
 const test = require("node:test");
 const { OBS_RECORDING_DEVICE_UID, createRuntimeAdapters } = require("../electron/runtime-adapters.cjs");
 
+test("platform audio setup blocks suppression readiness before a native route is owned", async () => {
+  const settings = { sourceMode: "desktop-application", recordingBusEnabled: false };
+  let routeProbeCalls = 0;
+  const processRoute = {
+    probe: async () => {
+      routeProbeCalls += 1;
+      return { ready: true, code: "ready", detail: "raw helper ready" };
+    },
+  };
+  const adapters = createRuntimeAdapters({}, () => settings, {
+    processRoute,
+    getPlatformAudioSetup: () => ({
+      status: "action-required",
+      code: "windows_route_assignment_required",
+      detail: "Assign ChatGPT to Persona Voice Sink",
+    }),
+  });
+
+  assert.deepEqual(await adapters.suppression.probe(), {
+    label: "Original suppression",
+    ready: false,
+    code: "windows_route_assignment_required",
+    detail: "Assign ChatGPT to Persona Voice Sink",
+  });
+  assert.equal(routeProbeCalls, 0);
+});
+
 test("recording bus mirrors converted frames to BlackHole without replacing default playback", async () => {
   const settings = { sourceMode: "desktop-application", recordingBusEnabled: true };
   const probes = [];
@@ -34,7 +61,10 @@ test("recording bus mirrors converted frames to BlackHole without replacing defa
       };
     },
   };
-  const adapters = createRuntimeAdapters({}, () => settings, { macAudioOutput });
+  const adapters = createRuntimeAdapters({}, () => settings, {
+    audioOutput: macAudioOutput,
+    recordingBusDeviceUid: OBS_RECORDING_DEVICE_UID,
+  });
   const readiness = await adapters.output.probe();
   assert.equal(readiness.ready, true);
   assert.deepEqual(probes, [null, OBS_RECORDING_DEVICE_UID]);
@@ -73,7 +103,10 @@ test("recording bus fails closed when BlackHole is already the default output", 
       close: async () => { closes += 1; },
     }),
   };
-  const adapters = createRuntimeAdapters({}, () => settings, { macAudioOutput });
+  const adapters = createRuntimeAdapters({}, () => settings, {
+    audioOutput: macAudioOutput,
+    recordingBusDeviceUid: OBS_RECORDING_DEVICE_UID,
+  });
   const readiness = await adapters.output.probe();
   assert.equal(readiness.ready, false);
   assert.equal(readiness.code, "recording_bus_matches_default_output");
@@ -115,7 +148,10 @@ test("a failed partial output cleanup is returned to Pipeline for retry", async 
       throw new Error("BlackHole disappeared");
     },
   };
-  const adapters = createRuntimeAdapters({}, () => settings, { macAudioOutput });
+  const adapters = createRuntimeAdapters({}, () => settings, {
+    audioOutput: macAudioOutput,
+    recordingBusDeviceUid: OBS_RECORDING_DEVICE_UID,
+  });
   await assert.rejects(
     async () => {
       try {
@@ -171,7 +207,10 @@ test("dual output startup failure retains both helper sessions for cleanup retry
       throw error;
     },
   };
-  const adapters = createRuntimeAdapters({}, () => settings, { macAudioOutput });
+  const adapters = createRuntimeAdapters({}, () => settings, {
+    audioOutput: macAudioOutput,
+    recordingBusDeviceUid: OBS_RECORDING_DEVICE_UID,
+  });
   let retained;
   await assert.rejects(
     async () => {
@@ -230,7 +269,10 @@ test("a default Multi-Output Device containing BlackHole is rejected as a non-pr
       return primary;
     },
   };
-  const adapters = createRuntimeAdapters({}, () => settings, { macAudioOutput });
+  const adapters = createRuntimeAdapters({}, () => settings, {
+    audioOutput: macAudioOutput,
+    recordingBusDeviceUid: OBS_RECORDING_DEVICE_UID,
+  });
   const readiness = await adapters.output.probe();
   assert.equal(readiness.ready, false);
   assert.equal(readiness.code, "recording_bus_requires_physical_default");
@@ -269,7 +311,10 @@ test("recording bus blocks when aggregate membership cannot be fully attested", 
     },
     prepare: async () => primary,
   };
-  const adapters = createRuntimeAdapters({}, () => settings, { macAudioOutput });
+  const adapters = createRuntimeAdapters({}, () => settings, {
+    audioOutput: macAudioOutput,
+    recordingBusDeviceUid: OBS_RECORDING_DEVICE_UID,
+  });
   const readiness = await adapters.output.probe();
   assert.equal(readiness.ready, false);
   assert.equal(readiness.code, "default_output_membership_unverified");

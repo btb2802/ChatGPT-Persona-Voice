@@ -31,6 +31,8 @@ source application's own network traffic.
 | History index | Clip metadata and internal filenames | User-data `history/index.json` | Follows history cleanup |
 | Model runtime | Python environment, model files, install manifest | Source `runtime/seed-vc/` in development; user-data `engine/seed-vc/` when packaged | Until manually removed or **Remove engine** |
 | Voice references | Selected target conditioning samples | Repository/package resources | Shipped with source/artifact |
+| Linux audio policy | Managed PipeWire/WirePlumber config plus activation receipt | Per-user XDG config/data/state roots | Until in-app **Remove route…**, `linux-audio-policy.cjs remove --reload`, or account removal |
+| Windows per-app output policy | Assignment of ChatGPT/Codex to Persona Voice Sink | Windows Sound/Volume Mixer policy | Until restored by the user/OS |
 
 The default user-data root is Electron's application-data location under `Codex Persona Voice`.
 Developers can override it with an absolute `CODEX_PERSONA_VOICE_DATA_DIR` path.
@@ -43,20 +45,23 @@ storage.
 
 ### Raw source audio
 
-The macOS helper sends engaged `f32le` PCM to Electron over stdout using CPV1. Electron sends exact
-300 ms blocks to the Seed-VC worker over CPVE. No raw-audio file or network socket is part of this
-path, and logging code records metadata/errors rather than PCM bodies.
+The platform capture helper sends engaged `f32le` PCM to Electron over stdout using CPV1: a Core
+Audio process tap on macOS, an owned PipeWire ingress monitor on Linux, or process-scoped WASAPI
+loopback on Windows after the selected live sessions are verified on Persona Voice Sink. Electron
+sends exact 300 ms blocks to the Seed-VC worker over CPVE. No raw-audio file or network socket is
+part of this path, and logging code records metadata/errors rather than PCM bodies.
 
 The adapter deliberately discards the first three seconds of each newly prepared/reset engine
 session. Discarded audio is not eligible for history or output.
 
 ### Converted audio
 
-Converted frames are written to the local Core Audio helper. “Save converted audio” is disabled by
-default. If the user enables it, frames successfully submitted to the output session can also enter
-the history recorder. History is PCM16 WAV and contains the converted voice.
+Converted frames are written to the local Core Audio, PipeWire, or WASAPI output helper. “Save
+converted audio” is disabled by default. If the user enables it, frames successfully submitted to
+the output session can also enter the history recorder. History is PCM16 WAV and contains the
+converted voice.
 
-If the optional recording bus is enabled, the same converted frames are mirrored to the local
+On macOS, if the optional recording bus is enabled, the same converted frames are mirrored to the local
 `BlackHole 2ch` device. BlackHole and recording software have their own privacy/security boundary
 and are not bundled by this project. Persona Voice rejects recording-bus startup when the default
 output (including an aggregate/Multi-Output Device) already contains BlackHole, because that route
@@ -134,9 +139,14 @@ tooling, not a remote conversion service.
 
 ## OS permissions and discovery
 
-macOS transparent capture uses the Audio Capture permission controlled by TCC. The app does not
-bypass that prompt. Source discovery enumerates local process metadata. Windows process and Linux
-PipeWire discovery exist, but their audio relays remain blocked.
+macOS transparent capture uses the Audio Capture permission controlled by TCC; the app does not
+bypass that prompt. Linux's in-app setup worker installs only managed per-user PipeWire/WirePlumber
+files and restarts the user audio services after explicit user action; unmanaged conflicting files
+are not replaced or removed. Windows requires a Microsoft-signed Persona Voice Sink on a clean
+machine. Only the elevated app installer changes that driver; per-app assignment/restoration may
+still be explicit in Volume Mixer. Graceful Quit blocks for restoration confirmation, but a
+crash/force-kill can leave the OS-owned preference pointing at the sink. Source discovery enumerates
+local process metadata and, on Linux, PipeWire stream metadata.
 
 Grant capture permission only on a machine where every user with access to the local account and
 data directory is trusted appropriately.
@@ -148,10 +158,14 @@ data:
 
 1. stop and quit the app cleanly;
 2. use Clear history first if the UI is available;
-3. use **Settings → Voice → Remove…** for the packaged engine, then remove the dedicated user-data
+3. on Windows, restore ChatGPT/Codex from Persona Voice Sink to **Default** or the physical output
+   in Volume Mixer, then follow the elevated uninstaller prompts that remove the driver;
+4. on Linux, use **Settings → Application → Remove route…** (or
+   `node scripts/linux-audio-policy.cjs remove --reload` in development) before deleting the app;
+5. use **Settings → Voice → Remove…** for the packaged engine, then remove the dedicated user-data
    directory through the operating system if all settings/logs should also be deleted;
-4. developers may separately remove the ignored `runtime/seed-vc/` directory;
-5. check backups, snapshots, BlackHole/OBS recordings, and exported artifacts separately.
+6. developers may separately remove the ignored `runtime/seed-vc/` directory;
+7. check backups, snapshots, macOS BlackHole/OBS recordings, and exported artifacts separately.
 
 Confirm the exact directory in Settings → Diagnostics before deleting anything. Do not recursively
 delete a broad application-data or home directory.

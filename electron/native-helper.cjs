@@ -6,7 +6,15 @@ const { NativeFrameParser } = require("./native-protocol.cjs");
 
 const HELPER_NAMES = Object.freeze({
   capture: "cpv-audio-capture",
+  driverManager: "cpv-driver-manager",
   output: "cpv-audio-output",
+  route: "cpv-audio-route",
+});
+
+const HELPER_DIRECTORIES = Object.freeze({
+  darwin: "darwin",
+  linux: "linux",
+  win32: "win32",
 });
 
 function resolveNativeHelperPath(kind, {
@@ -15,12 +23,14 @@ function resolveNativeHelperPath(kind, {
   resourcesPath = process.resourcesPath,
   projectRoot = path.join(__dirname, ".."),
 } = {}) {
-  const name = HELPER_NAMES[kind];
-  if (!name) throw new Error(`Unknown native helper kind: ${String(kind)}`);
-  if (platform !== "darwin") return null;
+  const baseName = HELPER_NAMES[kind];
+  const directory = HELPER_DIRECTORIES[platform];
+  const name = platform === "win32" ? `${baseName}.exe` : baseName;
+  if (!baseName) throw new Error(`Unknown native helper kind: ${String(kind)}`);
+  if (!directory) return null;
   return isPackaged
-    ? path.join(resourcesPath, "native", "darwin", name)
-    : path.join(projectRoot, "native", "bin", "darwin", name);
+    ? path.join(resourcesPath, "native", directory, name)
+    : path.join(projectRoot, "native", "bin", directory, name);
 }
 
 function waitForExit(child, timeoutMs) {
@@ -124,6 +134,7 @@ function probeNativeHelper(executable, expectedHelper, {
 
 module.exports = {
   HELPER_NAMES,
+  HELPER_DIRECTORIES,
   probeNativeHelper,
   resolveNativeHelperPath,
   terminateChild,

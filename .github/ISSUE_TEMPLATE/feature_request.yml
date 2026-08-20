@@ -40,8 +40,8 @@ body:
       label: Area
       options:
         - macOS audio path
-        - Windows platform path
-        - Linux platform path
+        - Windows route or driver lifecycle
+        - Linux PipeWire or policy lifecycle
         - Voice engine or model adapter
         - Installer or release engineering
         - Privacy, security, or consent

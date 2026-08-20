@@ -1,96 +1,131 @@
 # Platform matrix
 
-This matrix separates code that can render or discover sources from a relay that owns the complete
-audio path. `Possible` is an architectural assessment; it must never be presented as `Ready`.
+This matrix separates an implemented source path, live acceptance evidence, a clean distributable,
+and a supported release. Those are different claims. No platform currently has a supported
+production release.
 
 ## Current implementation
 
-| Capability | Apple Silicon macOS 14.2+ | Intel macOS | Windows | Linux |
-| --- | --- | --- | --- | --- |
-| Electron renderer/build | Implemented | Buildable, not relay-qualified | Buildable | Buildable |
-| Source discovery | Process tree | Process tree | Process tree | PipeWire output streams via `pw-dump` |
-| Existing-app capture | Core Audio process tap | Helper may build, engine unsupported | Not implemented | Not implemented |
-| Suppress original route | `CATapMutedWhenTapped` after engagement proof | Not end-to-end qualified | Not available through loopback alone | Isolated route not implemented |
-| Converted output | Core Audio helper | Helper may build, engine unsupported | Not implemented | Not implemented |
-| Engine setup | Source installer + packaged in-app Seed-VC/MPS installer | Blocked | Blocked | Blocked |
-| Transparent relay | Experimental preview | Blocked | Blocked | Blocked |
-| Packaged clean install | Implemented; qualification pending | Not implemented | Not implemented | Not implemented |
-| Signing/notarization | Local ad hoc only | Not complete | Not complete | N/A / packaging unsigned |
-| End-to-end p95 evidence | Not established | Not established | Not established | Not established |
-| Supported release | No | No | No | No |
+| Capability | Apple Silicon macOS 14.2+ | Windows x64 + NVIDIA, build 20348+ | Linux x64 + NVIDIA |
+| --- | --- | --- | --- |
+| Electron application | Implemented | Implemented | Implemented |
+| Source discovery | ChatGPT/Codex process trees | ChatGPT/Codex process trees | PipeWire output streams plus `/proc` process scope |
+| Existing-app capture | Core Audio process tap | Process-scoped WASAPI loopback | Native PipeWire capture from owned ingress monitor |
+| Original-route control | `CATapMutedWhenTapped` after first-frame proof | Elevated installer owns signed `Persona Voice Sink`; in-app setup verifies explicit per-app assignment, but does not mutate policy | In-app per-user PipeWire/WirePlumber policy setup, owned ingress/bypass, capture and bypass-mute proof |
+| Idle playback | Original route remains attached while the tap is armed | Bounded standby passthrough from the assigned sink to physical output | Owned bypass stream forwards ingress to the current physical default |
+| Converted output | Native Core Audio helper | Native WASAPI shared-render helper | Native PipeWire output helper |
+| Engine profile | `darwin-arm64-mps` | `windows-x64-cuda130` | `linux-x64-cuda130` |
+| Engine installation | Source and packaged in-app installer implemented | Source and packaged in-app installer implemented | Source and packaged in-app installer implemented |
+| Live relay evidence | Manually accepted live | Source/contracts only; no clean physical-Windows E2E acceptance | Ubuntu 24.04 / WirePlumber 0.4 and Fedora 42 / PipeWire 1.4.11 / WirePlumber 0.5.14 accepted live |
+| Remaining platform qualification | Signing/notarization, clean-machine and recovery matrix | Microsoft driver signature, clean install, Volume Mixer assignment/restore recovery matrix | Clean packaged policy recovery and broader distribution/session coverage |
+| Supported release | No | No | No |
 
-Windows and Linux may run the launcher shell, tests, discovery, and renderer build. Runtime probes
-still report capture/suppression/engine/output blockers, so an unsupported shell artifact cannot be
-mistaken for a functioning voice relay.
+Other architectures have no qualified realtime engine profile. Intel macOS, Windows ARM64, Linux
+ARM64, CPU-only Windows/Linux, and other operating systems remain unsupported.
 
-## Apple Silicon macOS development evidence
+## macOS evidence
 
-Present in the repository:
+The Apple Silicon path includes:
 
-- minimum transparent-tap capability probe for macOS 14.2;
-- user-mediated Audio Capture permission copy (TCC is not bypassed);
-- deferred lifecycle observation while armed;
-- in-place `CATapMutedWhenTapped` engagement after format and first-frame proof;
-- 64-slot capture ring and owner-process monitoring;
-- exact-format output with 64 AudioQueue buffers, 40 ms maximum frames, and explicit jitter status;
-- pinned Apple MPS Seed-VC runtime setup and install-manifest validation;
-- packaged in-app acquisition with embedded pinned `uv`, private managed Python, exact package
-  synchronization, seven-file hash verification, resumable staging, atomic publication, and
-  scoped removal;
-- thirteen hash-validated VOICEVOX references, one community JARVIS reference, and one upstream
-  Seed-VC Donald Trump AI-likeness reference;
-- contract/unit tests, native self-tests, engine smoke, and opt-in live smokes.
+- a macOS 14.2 capability probe and user-mediated Audio Capture permission;
+- deferred process observation, `CATapMutedWhenTapped` engagement after format/first-frame proof,
+  a 64-slot capture ring, dynamic process-tree refresh, and restoration reporting;
+- exact-format Core Audio output with 64 bounded buffers, a 40 ms maximum frame, and explicit
+  rebuffer status;
+- the pinned Apple MPS Seed-VC profile and verified source/in-app engine installation;
+- a manually accepted live relay path.
 
-Still missing before a supported macOS release:
+This does not complete Developer ID signing, notarization, clean-machine permission recovery,
+update/uninstall recovery, or representative end-to-end latency qualification.
 
-- clean-machine qualification of engine install/resume/removal and a versioned engine-update
-  policy;
-- signing identity, hardened-runtime verification of every nested executable, notarization, and
-  stapling;
-- repeatable permission/onboarding behavior on clean machines;
-- automated crash/restart/uninstall recovery evidence on supported OS versions;
-- representative end-to-end p50/p95/p99 latency and underrun evidence;
-- published support policy and release artifacts built from a reviewed tag.
+## Linux evidence
 
-The checked-in packaging configuration can produce local ad-hoc artifacts with the engine
-installer bootstrap. Artifact generation and an isolated clean-runtime smoke are still not a
-substitute for the full clean-machine, permission, recovery, and distribution matrix.
+The implemented Linux x64 path includes:
+
+- `pw-dump` discovery and `/proc`-based ChatGPT/Codex process scoping;
+- an in-app setup controller and worker for versioned per-user PipeWire/WirePlumber policy files with
+  deterministic ChatGPT/Codex route ids, owned ingress/bypass nodes, atomic managed-file
+  replacement/removal, conflict refusal, and user-session reload;
+- native CPV1 PipeWire capture that requires the pre-link policy, verifies owned ingress capture and
+  bypass mute before engagement, handles dynamic process streams, and reports rollback uncertainty;
+- native PipeWire output with a bounded 64-frame jitter queue and 500 ms startup/rebuffer target;
+- the locked `linux-x64-cuda130` Seed-VC profile with an actual CUDA tensor probe before model
+  acquisition;
+- live Ubuntu 24.04 / WirePlumber 0.4 and Fedora 42 / PipeWire 1.4.11 / WirePlumber 0.5.14 relay
+  proofs.
+
+The Fedora 42 acceptance covered A/B dynamic streams, per-route mute, SIGKILL/parent-death
+restoration, and uninstall cleanup. The first-run/Settings UI owns installation and removal;
+contributors can run the same policy implementation directly with:
+
+```bash
+node scripts/linux-audio-policy.cjs install --reload
+```
+
+The AppImage includes the policy assets and in-app lifecycle. It still needs clean-machine
+install/remove/reload rollback, daemon/device/crash recovery qualification, and broader
+distribution/session coverage.
+
+## Windows evidence and external blocker
+
+The Windows x64 path includes implemented user-mode and driver source:
+
+- process-scoped WASAPI loopback capture for one selected process tree on build 20348 or newer;
+- bounded WASAPI shared-render output to the physical listening device;
+- an owned, render-only `Persona Voice Sink` driver derived from Microsoft's audio sample, plus a
+  fixed-resource SetupAPI driver manager invoked only by the elevated NSIS install/uninstall path;
+- a route verifier that proves the selected app's current live audio sessions are on the owned sink,
+  monitors session changes, and declares that it does not mutate routing policy;
+- an in-app system-audio step that guides assignment and starts a standby lifecycle which forwards
+  captured sink audio to the physical output while conversion is idle, then hands the same route to
+  conversion;
+- the locked `windows-x64-cuda130` Seed-VC profile and cross-platform engine installer.
+
+WASAPI process loopback does not suppress the normal endpoint by itself. The suppressing boundary is
+the owned virtual sink, and a normal clean machine will not load it until Microsoft has signed its
+catalog/driver for kernel policy. The repository can build only the unsigned Hardware Dev Center
+submission payload. Packaging intentionally requires
+`CODEX_PERSONA_VOICE_SIGNED_DRIVER_DIR` and uses Windows `/kp` verification to require a signed
+catalog binding both the INF and SYS; it does not enable test-signing or ship unsigned output.
+
+The current in-app route helper also has an explicit product limitation: it verifies current live sessions
+but does not assign or restore per-app audio policy, and Windows notifications are not guaranteed to
+arrive before the first audio frame. A run may therefore require the user to assign ChatGPT/Codex to
+`Persona Voice Sink` in **Settings → System → Sound → Volume mixer**, keep standby passthrough active,
+and restore the app to **Default** or the physical device before quit/uninstall. Clean-binary and
+recovery acceptance remain blocked until the signed driver and that lifecycle are qualified.
+
+Graceful Quit blocks on explicit restoration and user confirmation. A crash/force-kill can still
+leave the OS-owned per-app preference pointing at the sink. The route monitor proves current live
+sessions only; `OnSessionCreated` has no pre-first-sample guarantee. None of the checked-in Windows
+source/contracts is a GPU/performance or clean physical-host proof.
 
 ## Cross-platform release gates
 
-Every platform must independently prove all of the following:
+Every platform must independently prove all of the following before support is claimed:
 
 1. Stable source identity and exact source PCM format.
-2. A reversible, crash-safe route that proves the original cannot reach the selected output while
-   converted playback is active.
-3. A qualified local engine profile with reproducible installation and license inventory.
-4. Exact-format bounded output with underrun/overflow behavior.
+2. A reversible route that proves original-audio suppression during converted playback and reports
+   uncertainty instead of inventing restoration.
+3. A qualified local engine profile with reproducible installation and complete license inventory.
+4. Exact-format bounded output with tested underrun/overflow behavior.
 5. Failure injection for source exit, sequence gaps, queue overflow, engine timeout/crash, output
-   loss, device changes, app crash, and OS logout/restart.
-6. Clean install, update, downgrade policy, and uninstall recovery.
+   loss, device/daemon changes, app crash, logout/restart, and route restoration.
+6. Clean install, update, downgrade policy, uninstall, and recovery on named hosts.
 7. End-to-end latency/quality methodology and published results for named hardware.
-8. Platform signing/distribution requirements and third-party license delivery.
+8. Platform signing/distribution requirements and final third-party notice delivery.
 
-## Linux route plan
+## CI and release-workflow scope
 
-PipeWire discovery is implemented, but relay ownership is not. A qualifying adapter must create
-owned graph objects with deterministic identities, reroute only the selected stream, capture from
-the isolated route, and restore topology after stream recreation, device changes, crashes, and
-uninstall. Desktop coverage must include supported PipeWire environments; a list of command-line
-tools is not itself a route guarantee.
+Normal CI performs frozen dependency installation, tests, typecheck, renderer build, native helper
+compilation, and non-permissioned native self-tests on macOS, Windows, and Linux. Linux self-tests run
+inside a private PipeWire session. These checks prove build/protocol contracts, not permissioned
+live routing, CUDA performance, clean installation, or release support.
 
-## Windows route plan
+The tag workflow builds target-native DMG/ZIP, EXE, and AppImage artifacts and signs a canonical
+update manifest. Windows packaging is designed to stop unless an externally Microsoft-signed driver
+package is supplied and verified. Transport, checksums, or a published artifact do not replace the
+platform gates above.
 
-WASAPI process loopback can capture a process but does not suppress the application's normal
-endpoint. A qualifying path therefore needs a consented, signed virtual endpoint/driver or another
-mechanism that can prove original-route silence and deterministic removal. Default-device mutation
-is not acceptable without a reversible crash-safe transaction.
-
-## CI scope
-
-Repository CI intentionally runs frozen dependency installation, unit tests, typecheck, and renderer
-build across macOS, Windows, and Linux. It does not build native installers, run permissioned audio
-smokes, publish artifacts, or imply relay support on a passing shell platform.
-
-See [Release engineering](RELEASE.md) for artifact policy and [Roadmap](ROADMAP.md) for the evidence
-sequence.
+See [Release engineering](RELEASE.md) for artifact policy and [Roadmap](ROADMAP.md) for the remaining
+evidence sequence.

@@ -1,6 +1,7 @@
 "use strict";
 
 const assert = require("node:assert/strict");
+const { createHash } = require("node:crypto");
 const fs = require("node:fs");
 const path = require("node:path");
 const { spawnSync } = require("node:child_process");
@@ -18,9 +19,6 @@ test("macOS package declares permissions and both native data-plane helpers", ()
     [
       "LICENSE.electron.txt",
       "LICENSES.chromium.html",
-      "engine-installer",
-      "engine/seed-vc",
-      "engine/vendor/seed-vc",
       "native/darwin/cpv-atomic-swap",
       "native/darwin/cpv-audio-capture",
       "native/darwin/cpv-audio-output",
@@ -37,6 +35,9 @@ test("macOS package declares permissions and both native data-plane helpers", ()
   assert.equal(packageJson.build.extraResources.some((entry) => entry.to === "voices"), true);
   assert.equal(packageJson.build.extraResources.some((entry) =>
     entry.from === "build/updater-runtime" && entry.to === "updater-runtime"), true);
+  for (const destination of ["engine-installer", "engine/seed-vc", "engine/vendor/seed-vc"]) {
+    assert.equal(packageJson.build.extraResources.some((entry) => entry.to === destination), true);
+  }
   assert.equal(packageJson.build.mac.binaries.includes("Contents/Resources/updater-runtime/bun"), true);
   assert.equal(packageJson.build.mac.binaries.includes("Contents/Resources/native/darwin/cpv-atomic-swap"), true);
   assert.equal(packageJson.build.mac.binaries.includes("Contents/Resources/engine-installer/uv"), true);
@@ -66,8 +67,13 @@ test("one notice inventory covers every bundled voice and packaged bootstrap", (
   assert.match(notice, new RegExp(`Bun ${packageJson.packageManager.split("@")[1]}`));
   assert.match(notice, new RegExp(`uv ${packageJson.engineInstaller.uvVersion}`));
   const bunLicense = fs.readFileSync(
-    path.join(root, "third_party_licenses", "BUN-1.3.11-LICENSE.md"),
+    path.join(root, "third_party_licenses", "BUN-1.3.14-LICENSE.md"),
     "utf8",
+  );
+  assert.equal(packageJson.packageManager, "bun@1.3.14");
+  assert.equal(
+    createHash("sha256").update(bunLicense).digest("hex"),
+    "2c6160ec8fb853f7e8f97d9b249e756c9b0ac44860a68b6bf4f1b0bcbc5c3741",
   );
   const uvLicense = fs.readFileSync(
     path.join(root, "third_party_licenses", "UV-0.11.14-LICENSE-MIT"),
@@ -84,6 +90,15 @@ test("one notice inventory covers every bundled voice and packaged bootstrap", (
   assert.equal(reactLicense, fs.readFileSync(path.join(root, "node_modules", "react", "LICENSE"), "utf8"));
   assert.equal(reactLicense, fs.readFileSync(path.join(root, "node_modules", "react-dom", "LICENSE"), "utf8"));
   assert.equal(reactLicense, fs.readFileSync(path.join(root, "node_modules", "scheduler", "LICENSE"), "utf8"));
+  const msPlLicense = fs.readFileSync(
+    path.join(root, "third_party_licenses", "MS-PL-LICENSE"),
+    "utf8",
+  );
+  assert.match(msPlLicense, /Microsoft Public License \(MS-PL\)/);
+  assert.equal(
+    msPlLicense,
+    fs.readFileSync(path.join(root, "native", "windows", "driver", "MS-PL-LICENSE"), "utf8"),
+  );
 
   for (const retiredNotice of [
     "voices/licenses/VOICEVOX.md",
@@ -99,6 +114,23 @@ test("development and native packaging rebuild helpers instead of relying on sta
   assert.match(packageJson.scripts.dev, /test:native/);
   assert.match(packageJson.scripts["package:mac"], /build:native/);
   assert.match(packageJson.scripts["package:mac"], /test:native/);
+  assert.match(packageJson.scripts["package:win"], /build:native/);
+  assert.match(packageJson.scripts["package:win"], /test:native/);
+  assert.match(packageJson.scripts["package:linux"], /build:native/);
+  assert.match(packageJson.scripts["package:linux"], /test:native/);
+  assert.deepEqual(packageJson.build.win.extraResources.map((entry) => entry.to).sort(), [
+    "native/win32/cpv-audio-capture.exe",
+    "native/win32/cpv-audio-output.exe",
+    "native/win32/cpv-audio-route.exe",
+    "native/win32/cpv-driver-manager.exe",
+    "native/win32/driver",
+  ]);
+  assert.deepEqual(packageJson.build.linux.extraResources.map((entry) => entry.to).sort(), [
+    "native/linux/THIRD_PARTY_NOTICES.md",
+    "native/linux/cpv-audio-capture",
+    "native/linux/cpv-audio-output",
+    "native/linux/wireplumber",
+  ]);
   const gitignore = fs.readFileSync(path.join(root, ".gitignore"), "utf8");
   assert.match(gitignore, /^native\/bin\/$/m);
   assert.match(gitignore, /^models\/$/m);
@@ -113,31 +145,37 @@ test("experimental packages are local-only and receive a SHA-256 manifest", () =
   assert.match(packaging, /process\.versions\.bun/);
   assert.match(packaging, /updater-runtime/);
   assert.match(packaging, /engine-installer/);
+  assert.match(packaging, /CODEX_PERSONA_VOICE_SIGNED_DRIVER_DIR/);
+  assert.match(packaging, /verifyMicrosoftSignedPackage\(source\)/);
+  assert.match(packaging, /assertWindowsReleasePayload\(path\.dirname\(destination\)\)/);
   assert.equal(
     (packaging.match(/path\.join\(root, "THIRD_PARTY_NOTICES\.md"\)/g) || []).length,
     2,
   );
-  assert.match(packaging, /third_party_licenses", "BUN-1\.3\.11-LICENSE\.md/);
+  assert.match(packaging, /third_party_licenses", "BUN-1\.3\.14-LICENSE\.md/);
   assert.match(packaging, /third_party_licenses", "UV-0\.11\.14-LICENSE-MIT/);
   assert.doesNotMatch(packaging, /runtime\.json/);
 });
 
 test("tag releases publish exact updater assets and one canonical checksum manifest", () => {
+  const ciWorkflow = fs.readFileSync(path.join(root, ".github", "workflows", "ci.yml"), "utf8");
   const workflow = fs.readFileSync(path.join(root, ".github", "workflows", "release.yml"), "utf8");
   for (const runner of ["macos-15", "windows-latest", "ubuntu-latest"]) {
     assert.match(workflow, new RegExp(runner));
   }
   assert.match(workflow, /tags: \["v\*"\]/);
-  assert.match(workflow, /bun-version: 1\.3\.11/);
+  assert.match(ciWorkflow, /bun-version: 1\.3\.14/);
+  assert.match(workflow, /bun-version: 1\.3\.14/);
   assert.match(workflow, /version: "0\.11\.14"/);
   assert.match(workflow, /engine-installer\/uv/);
   assert.match(workflow, /updater-runtime\/bun" --version/);
   assert.match(workflow, /submodules: recursive/);
   assert.match(workflow, /git -C engine\/vendor\/seed-vc rev-parse HEAD/);
   assert.match(workflow, /cp THIRD_PARTY_NOTICES\.md release-assets\/THIRD_PARTY_NOTICES\.md/);
-  assert.match(workflow, /BUN-1\.3\.11-LICENSE\.md/);
+  assert.match(workflow, /BUN-1\.3\.14-LICENSE\.md/);
   assert.match(workflow, /UV-0\.11\.14-LICENSE-MIT/);
   assert.match(workflow, /REACT-19-LICENSE/);
+  assert.match(workflow, /MS-PL-LICENSE/);
   assert.doesNotMatch(workflow, /voices\/licenses/);
   assert.match(workflow, /SHA256SUMS/);
   assert.match(workflow, /SHA256SUMS\.sig/);

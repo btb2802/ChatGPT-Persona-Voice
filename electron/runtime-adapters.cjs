@@ -30,9 +30,11 @@ function methodNotAvailable(name) {
 }
 
 function createRuntimeAdapters(capabilities, getSettings, {
-  macProcessRoute = null,
-  macAudioOutput = null,
+  processRoute = null,
+  audioOutput = null,
+  recordingBusDeviceUid = null,
   voiceEngine = null,
+  getPlatformAudioSetup = null,
 } = {}) {
   return {
     source: {
@@ -41,20 +43,20 @@ function createRuntimeAdapters(capabilities, getSettings, {
         if (settings.sourceMode === "codex-app-server") {
           return { label: "Audio source", ...capabilities.ownedSession };
         }
-        if (macProcessRoute) {
-          return { label: "Audio source", ...await macProcessRoute.probe(settings) };
+        if (processRoute) {
+          return { label: "Audio source", ...await processRoute.probe(settings) };
         }
         return { label: "Audio source", ...capabilities.desktopCapture };
       },
       open: async (config, onFrame, onError) => {
-        if (getSettings().sourceMode === "desktop-application" && macProcessRoute) {
-          return macProcessRoute.open(config, onFrame, onError);
+        if (getSettings().sourceMode === "desktop-application" && processRoute) {
+          return processRoute.open(config, onFrame, onError);
         }
         throw new Error("The selected audio source adapter is not implemented");
       },
       describe: async (config) => {
-        if (getSettings().sourceMode === "desktop-application" && macProcessRoute) {
-          return macProcessRoute.describe(config);
+        if (getSettings().sourceMode === "desktop-application" && processRoute) {
+          return processRoute.describe(config);
         }
         throw new Error("The selected audio source cannot describe its PCM format");
       },
@@ -70,21 +72,30 @@ function createRuntimeAdapters(capabilities, getSettings, {
             detail: "Owned App Server audio is not attached to hardware before conversion",
           };
         }
-        if (macProcessRoute) {
-          const result = await macProcessRoute.probe(settings);
+        const platformSetup = getPlatformAudioSetup?.();
+        if (platformSetup && platformSetup.status !== "ready") {
+          return {
+            label: "Original suppression",
+            ready: false,
+            code: platformSetup.code,
+            detail: platformSetup.detail,
+          };
+        }
+        if (processRoute) {
+          const result = await processRoute.probe(settings);
           return {
             label: "Original suppression",
             ...result,
             ...(result.ready ? {
-              detail: "Core Audio suppression is ready and remains detached until duplex voice is active",
+              detail: "Process-scoped suppression is ready and remains detached until duplex voice is active",
             } : {}),
           };
         }
         return { label: "Original suppression", ...capabilities.suppression };
       },
       acquire: async (config, onRouteError, onRouteStatus, options) => {
-        if (getSettings().sourceMode === "desktop-application" && macProcessRoute) {
-          return macProcessRoute.acquire(config, onRouteError, onRouteStatus, options);
+        if (getSettings().sourceMode === "desktop-application" && processRoute) {
+          return processRoute.acquire(config, onRouteError, onRouteStatus, options);
         }
         throw new Error("The selected original-audio suppression adapter is not implemented");
       },
@@ -100,10 +111,18 @@ function createRuntimeAdapters(capabilities, getSettings, {
     },
     output: {
       probe: async () => {
-        if (!macAudioOutput) return { label: "Converted output", ...capabilities.output };
-        const primary = await macAudioOutput.probe();
+        if (!audioOutput) return { label: "Converted output", ...capabilities.output };
+        const primary = await audioOutput.probe();
         if (!primary.ready || !getSettings().recordingBusEnabled) {
           return { label: "Converted output", ...primary };
+        }
+        if (!recordingBusDeviceUid) {
+          return {
+            label: "Converted output",
+            ready: false,
+            code: "recording_bus_unsupported",
+            detail: "The converted-only recording bus is not available on this platform",
+          };
         }
         if (primary.isAggregateDevice === true) {
           return {
@@ -121,7 +140,7 @@ function createRuntimeAdapters(capabilities, getSettings, {
             detail: "Core Audio could not verify every member of the default output; the converted-only recording bus is blocked",
           };
         }
-        const recording = await macAudioOutput.probe(OBS_RECORDING_DEVICE_UID);
+        const recording = await audioOutput.probe(recordingBusDeviceUid);
         if (recording.ready && includesOutputDevice(primary, recording.deviceUid)) {
           return {
             label: "Converted output",
@@ -140,10 +159,13 @@ function createRuntimeAdapters(capabilities, getSettings, {
           : { label: "Converted output", ...recording };
       },
       prepare: async (config, format, onError) => {
-        if (!macAudioOutput) {
+        if (!audioOutput) {
           throw new Error("The converted-audio output adapter is not implemented on this platform");
         }
-        const primary = await macAudioOutput.prepare(
+        if (config.recordingBusEnabled && !recordingBusDeviceUid) {
+          throw new Error("The converted-only recording bus is not available on this platform");
+        }
+        const primary = await audioOutput.prepare(
           { ...config, outputDeviceUid: null }, format, onError,
         );
         if (!config.recordingBusEnabled) return primary;
@@ -179,7 +201,7 @@ function createRuntimeAdapters(capabilities, getSettings, {
           }
           throw membershipError;
         }
-        if (includesOutputDevice(primary, OBS_RECORDING_DEVICE_UID)) {
+        if (includesOutputDevice(primary, recordingBusDeviceUid)) {
           const conflict = new Error(
             "The default output already includes BlackHole 2ch; refusing to expose unrelated system audio or duplicate converted audio on the recording bus",
           );
@@ -197,8 +219,8 @@ function createRuntimeAdapters(capabilities, getSettings, {
         }
         let recording;
         try {
-          recording = await macAudioOutput.prepare(
-            { ...config, outputDeviceUid: OBS_RECORDING_DEVICE_UID }, format, onError,
+          recording = await audioOutput.prepare(
+            { ...config, outputDeviceUid: recordingBusDeviceUid }, format, onError,
           );
         } catch (error) {
           try {

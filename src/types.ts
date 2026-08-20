@@ -27,7 +27,13 @@ export interface Settings {
   recordingBusEnabled: boolean;
   launchAtLogin: boolean;
   keepRunningOnClose: boolean;
+  windowsManualRouteConfigured: boolean;
 }
+
+export type UserSettingKey = Exclude<
+  keyof Settings,
+  "windowsManualRouteConfigured"
+>;
 
 export interface ReadinessCheck {
   id: "source" | "suppression" | "engine" | "output";
@@ -50,6 +56,9 @@ export interface RuntimeSnapshot {
 
 export interface EngineDiagnostics {
   profile: "seed-vc-tiny-realtime";
+  runtimeProfile: string | null;
+  device: "mps" | "cuda" | null;
+  backend: string | null;
   workerState: "stopped" | "loading" | "ready";
   active: boolean;
   voiceId: string | null;
@@ -64,6 +73,9 @@ export interface EngineDiagnostics {
   mpsCurrentAllocatedBytes: number | null;
   mpsDriverAllocatedBytes: number | null;
   mpsRecommendedMaxBytes: number | null;
+  cudaAllocatedBytes: number | null;
+  cudaReservedBytes: number | null;
+  cudaDeviceName: string | null;
 }
 
 export type EngineInstallationState =
@@ -76,7 +88,7 @@ export type EngineInstallationState =
     }
   | {
       status: "installing";
-      phase: "preparing" | "python" | "packages" | "models" | "verifying" | "publishing";
+      phase: "preparing" | "python" | "packages" | "hardware" | "models" | "verifying" | "publishing";
       progress: number;
       detail: string;
       cancellable: boolean;
@@ -97,6 +109,23 @@ export type EngineInstallationState =
       estimatedInstalledBytes: number;
       minimumFreeBytes: number;
     };
+
+export type PlatformAudioSetupStatus =
+  | "ready"
+  | "action-required"
+  | "installing"
+  | "error"
+  | "unavailable";
+
+export interface PlatformAudioSetupState {
+  status: PlatformAudioSetupStatus;
+  code: string;
+  detail: string;
+  canInstall: boolean;
+  canActivate: boolean;
+  requiresRouteAssignment: boolean;
+  canRemove: boolean;
+}
 
 export interface HistoryEntry {
   id: string;
@@ -119,6 +148,8 @@ export interface PlatformCapabilities {
   platform: string;
   release: string;
   macVersion?: string | null;
+  windowsBuild?: number | null;
+  pipeWireTools?: Record<string, string | null>;
   codex: {
     detected: boolean;
     executable: string | null;
@@ -144,6 +175,7 @@ export interface LauncherSnapshot {
   autostart: { supported: boolean; enabled: boolean };
   capabilities: PlatformCapabilities;
   runtime: RuntimeSnapshot;
+  platformAudioSetup: PlatformAudioSetupState;
   engineInstallation: EngineInstallationState;
   engineDiagnostics: EngineDiagnostics;
   voices: VoicePreset[];
@@ -174,10 +206,14 @@ export interface VoiceBridge {
   openSocial(target: "github" | "x"): Promise<OnboardingState>;
   completeOnboarding(): Promise<OnboardingState>;
   refreshReadiness(): Promise<RuntimeSnapshot>;
+  refreshPlatformAudioSetup(): Promise<PlatformAudioSetupState>;
+  installPlatformAudioSetup(): Promise<PlatformAudioSetupState>;
+  activatePlatformAudioSetup(): Promise<PlatformAudioSetupState>;
+  removePlatformAudioSetup(): Promise<PlatformAudioSetupState>;
   installEngine(): Promise<EngineInstallationState>;
   cancelEngineInstall(): Promise<boolean>;
   removeEngine(): Promise<EngineInstallationState>;
-  setSetting<Key extends keyof Settings>(
+  setSetting<Key extends UserSettingKey>(
     key: Key,
     value: Settings[Key],
   ): Promise<Settings>;

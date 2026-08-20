@@ -70,5 +70,18 @@ test("native helper paths distinguish development and packaged layouts", () => {
     isPackaged: true,
     resourcesPath: "/App/Contents/Resources",
   }), path.join("/App/Contents/Resources", "native", "darwin", "cpv-audio-output"));
-  assert.equal(resolveNativeHelperPath("capture", { platform: "linux" }), null);
+  assert.equal(resolveNativeHelperPath("capture", {
+    platform: "linux",
+    projectRoot: "/project",
+  }), path.join("/project", "native", "bin", "linux", "cpv-audio-capture"));
+  assert.equal(resolveNativeHelperPath("output", {
+    platform: "win32",
+    projectRoot: "C:\\project",
+  }), path.join("C:\\project", "native", "bin", "win32", "cpv-audio-output.exe"));
+  assert.equal(resolveNativeHelperPath("route", {
+    platform: "win32",
+    isPackaged: true,
+    resourcesPath: "C:\\Program Files\\Persona Voice\\resources",
+  }), path.join("C:\\Program Files\\Persona Voice\\resources", "native", "win32", "cpv-audio-route.exe"));
+  assert.equal(resolveNativeHelperPath("capture", { platform: "freebsd" }), null);
 });

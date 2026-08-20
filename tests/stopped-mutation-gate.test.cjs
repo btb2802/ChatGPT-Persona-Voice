@@ -10,7 +10,7 @@ function deferred() {
   return { promise, resolve };
 }
 
-test("a stopped-only mutation excludes relay startup until it settles", async () => {
+test("stopped-only mutations exclude startup and always release their gate", async () => {
   let state = "stopped";
   const gate = new StoppedMutationGate(() => state);
   const release = deferred();
@@ -29,14 +29,11 @@ test("a stopped-only mutation excludes relay startup until it settles", async ()
 
   state = "running";
   await assert.rejects(() => gate.run("settings update", async () => {}), /Stop the relay/);
-});
-
-test("a failed mutation releases the gate", async () => {
-  const gate = new StoppedMutationGate(() => "stopped");
+  const failedGate = new StoppedMutationGate(() => "stopped");
   await assert.rejects(
-    () => gate.run("source selection", async () => { throw new Error("discovery failed"); }),
+    () => failedGate.run("source selection", async () => { throw new Error("discovery failed"); }),
     /discovery failed/,
   );
-  assert.doesNotThrow(() => gate.assertCanStart());
-  assert.equal(await gate.run("settings update", async () => 42), 42);
+  assert.doesNotThrow(() => failedGate.assertCanStart());
+  assert.equal(await failedGate.run("settings update", async () => 42), 42);
 });

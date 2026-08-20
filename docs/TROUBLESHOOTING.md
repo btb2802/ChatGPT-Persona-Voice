@@ -1,64 +1,67 @@
 # Troubleshooting
 
-Start with the exact blocker shown in Settings → Diagnostics. The relay deliberately refuses to
-start when any source, suppression, engine, or output probe is not ready.
+Start with the exact blocker shown in **Settings → Diagnostics**. The relay refuses to start when
+its source, route/suppression, engine, or output proof is incomplete.
 
 ## Capture a useful report
 
 Before changing anything, record:
 
-- macOS version and CPU architecture;
+- OS version/build, CPU architecture, and GPU/driver;
 - source checkout commit;
 - Bun and Node versions (`bun --version`, `node --version`);
-- whether the app is a source checkout or local packaged artifact;
+- source checkout or packaged-artifact run mode;
 - selected source and voice;
 - runtime state and stable blocker/error code;
-- the smallest relevant, redacted log excerpt;
-- exact command and whether the failure reproduces after a clean Stop/relaunch.
+- on Linux, PipeWire and WirePlumber versions;
+- on Windows, whether a Microsoft-signed Persona Voice Sink is installed and the app's Volume Mixer
+  output assignment;
+- the smallest relevant redacted log excerpt and exact failing command.
 
-Do not attach audio or a complete log unless it is necessary and safe. Logs can contain local paths,
+Do not attach audio or a complete log unless necessary and safe. Logs can contain local paths,
 process/device names, and child-process diagnostics.
 
-## Platform is blocked
+## Host profile is unsupported
 
-### Windows or Linux
+The qualified realtime profiles are:
 
-This is expected. The repository has a renderer and source discovery, but no complete transparent
-relay. Windows needs a verifiable suppressing endpoint/driver; Linux needs an owned crash-safe
-PipeWire route and output adapter. The Seed-VC installer is also Apple Silicon-only.
+- `darwin-arm64-mps` on Apple Silicon macOS 14.2+;
+- `windows-x64-cuda130` on Windows x64 with NVIDIA CUDA;
+- `linux-x64-cuda130` on Linux x64 with NVIDIA CUDA.
 
-Do not try to bypass readiness by changing a capability result. There is no safe pass-through or
-identity fallback. See [Platform matrix](PLATFORM_MATRIX.md).
-
-### Intel macOS or macOS older than 14.2
-
-The current end-to-end profile is unsupported. Core Audio process taps require macOS 14.2+, and the
-installed engine profile requires Apple MPS on Apple Silicon.
+Intel macOS, ARM64 Windows/Linux, and CPU-only Windows/Linux have no qualified realtime profile.
+Changing a capability result or requirements filename does not create a working profile.
 
 ## Dependency installation fails
 
-Run from the repository root:
+From the repository root:
 
 ```bash
 git submodule update --init --recursive
 bun install --frozen-lockfile
 ```
 
-If the lockfile install reports a mismatch, do not regenerate `bun.lock` just to make CI pass.
-Confirm that the checkout and Bun version are expected, then report the exact error.
+If the frozen install reports a mismatch, verify the checkout and Bun 1.3.14. Do not regenerate
+`bun.lock` only to make the error disappear.
 
 ## Engine setup is unavailable or invalid
 
-### “The current install profile supports Apple Silicon macOS only”
+### “Realtime Seed-VC requires Apple Silicon or x64 Windows/Linux with NVIDIA CUDA”
 
-The check is intentional. No other accelerator profile is qualified.
+The current OS/architecture has no profile. Use one of the hosts above; there is no CPU fallback.
 
-### `uv` or Python 3.11 cannot be created
+### NVIDIA CUDA is unavailable
 
-For a source checkout, verify `uv --version` and network access. The setup script asks `uv` for
-Python 3.11 and synchronizes the locked requirements. A global Python environment is not a
-supported replacement. A packaged app carries its own pinned `uv`; retry from **Settings → Voice**
-and preserve the exact installer error if it still fails.
+On Windows/Linux, the installer runs a real CUDA tensor operation before downloading models. Verify
+that an NVIDIA GPU is visible to the current user and that the installed driver supports the locked
+CUDA 13.0 PyTorch profile. Persona Voice does not fall back to CPU or another Torch build.
+
+### `uv` or managed Python 3.11 cannot be created
+
+For source setup, verify `uv --version`, the expected PATH, free space, and network access. Setup
+uses a managed Python 3.11 environment and a platform-specific hash lock; a global environment is
+not a supported replacement. A packaged app carries pinned `uv` 0.11.14; retry from **Settings →
+Voice** and preserve the exact installer error.
 
 ### Seed-VC submodule revision mismatch
 
@@ -67,163 +70,219 @@ git submodule update --init --recursive
 git -C engine/vendor/seed-vc rev-parse HEAD
 ```
 
-The printed revision must match `seedVcCommit` in `engine/seed-vc/model-lock.json`. Do not move the
-submodule independently without updating the lock, tests, notices, and review evidence.
+The revision must match `seedVcCommit` in `engine/seed-vc/model-lock.json`. Do not move the submodule
+without updating the lock, tests, notices, and review evidence.
 
-### Model hash or install-manifest mismatch
-
-Rerun:
+### Model hash, package lock, or install-manifest mismatch
 
 ```bash
 bun run setup:engine
 ```
 
-Setup verifies pinned revisions and hashes. If it still fails, preserve the error and manifest for
-diagnosis. If a clean reinstall is necessary, quit the app, rename the dedicated
-`runtime/seed-vc/` directory as a backup, rerun setup, and remove the backup only after verifying the
-new runtime. Do not delete a parent workspace or shared model cache by mistake.
+If a source reinstall is necessary, quit the app, rename only the dedicated `runtime/seed-vc/`
+directory as a backup, rerun setup, and delete the backup only after the new runtime verifies. Do
+not delete a workspace, home directory, or shared cache.
 
 ### Packaged artifact reports a missing engine
 
-Open **Settings → Voice** and select **Install engine**. The first install needs network access and
-at least 6 GiB free; approximately 2.5 GiB remains installed. Cancellation leaves a resumable
-staging area, so use **Resume** rather than copying a development runtime into application data.
+Open **Settings → Voice → Install engine**. The minimum free-space checks are 6 GiB on macOS and
+15 GiB on Windows/Linux; estimated installed sizes are 2.5, 9, and 11 GiB respectively. Cancellation
+leaves resumable staging. Use **Resume** instead of copying a development venv into app data.
 
-If verification fails, keep the exact message. **Remove…** deletes the private runtime, staging,
-managed Python, and cache, after which a fresh install can be attempted. It does not delete voices,
-settings, or history.
+**Remove…** deletes the private runtime, staging, managed Python, and installer cache. It does not
+delete voices, settings, history, Linux audio policy, or Windows Volume Mixer policy.
 
-## Native helper does not build
+## Linux route or policy is not ready
 
-Verify the Apple toolchain:
+The implemented Linux path requires PipeWire, WirePlumber, native helpers, and the managed pre-link
+policy. First use the system-audio card in onboarding or **Settings → Application** to inspect/install
+the route. Contributors can inspect the same implementation directly:
 
 ```bash
-xcode-select -p
-clang --version
+wireplumber --version
+pw-dump >/dev/null
+node scripts/linux-audio-policy.cjs inspect
+```
+
+Install or refresh the per-user policy from the UI, or directly for development:
+
+```bash
+node scripts/linux-audio-policy.cjs install --reload
+```
+
+This writes only fixed managed files below the user's XDG config/data roots and restarts
+`pipewire.service`, `pipewire-pulse.service`, and `wireplumber.service`. An unmanaged file conflict is
+intentional: move/reconcile that file yourself instead of bypassing the ownership check. Playback
+pauses briefly during the user-session restart, but Persona Voice stays open; no app restart or
+system reboot is part of this flow.
+
+The relay is live-proven on Ubuntu 24.04 with WirePlumber 0.4 and Fedora 42 with PipeWire 1.4.11 /
+WirePlumber 0.5.14. The Fedora proof covered A/B dynamic streams, per-route mute,
+SIGKILL/parent-death restoration, and uninstall cleanup. Include the exact PipeWire/WirePlumber
+versions and policy inspection output in a report. Versions outside WirePlumber 0.4/0.5 are
+rejected.
+
+Use **Remove route…** in Settings, or remove it directly during development:
+
+```bash
+node scripts/linux-audio-policy.cjs remove --reload
+```
+
+If the helper reports route restoration unproven, stop the source app and Persona Voice, inspect the
+PipeWire graph/session, and do not start another conversion until normal playback and bypass state
+are confirmed.
+
+## Windows driver or route is not ready
+
+### Windows build is too old
+
+Process-scoped WASAPI loopback requires build 20348 or newer. The engine profile does not override
+that OS audio requirement.
+
+### Persona Voice Sink is missing or unsigned
+
+The repository includes a render-only virtual-sink source and can build an unsigned Hardware Dev
+Center submission payload. A clean Windows system requires the resulting package to be signed by
+Microsoft. The elevated Persona Voice installer is the only supported install/remove boundary for
+the fixed signed files. Do not enable test-signing, disable signature enforcement, or copy an
+unsigned driver into a public artifact.
+
+Packaging similarly requires `CODEX_PERSONA_VOICE_SIGNED_DRIVER_DIR` and verifies the kernel-policy
+signature with `/kp`, including the catalog binding to both the exact INF and SYS, before copying the
+fixed files. Until that external signing gate is complete, there is no clean functional Windows
+binary. Source/contract tests are not physical-GPU or clean-machine evidence.
+
+### Route verifier asks for Volume Mixer assignment
+
+The in-app system-audio screen guides verification, but the verifier observes current live sessions
+and does not mutate per-app policy. With Persona Voice stopped:
+
+1. open ChatGPT/Codex and start real voice/audio playback so a live session exists;
+2. open **Settings → System → Sound → Volume mixer**;
+3. set the selected app's output to **Persona Voice Sink**;
+4. return to Persona Voice and choose **Verify route**; bounded standby starts only after live proof;
+5. Start swaps standby to conversion; Stop returns to 40 ms/250 ms bounded physical-output standby;
+6. before quit/uninstall, restore the app to **Default** or the physical output;
+7. in the quit dialog choose **I've restored it** only after the change. **Cancel** and **Open Volume
+   Mixer** leave the route owned for recovery. The elevated uninstaller uses the same restore-first
+   boundary before removing the driver.
+
+Windows notifications are not guaranteed to precede the first audio frame. A route-membership loss
+or manual-restore request is a real lifecycle boundary, not a cosmetic warning. A crash/force-kill
+can leave the OS-owned per-app preference pointing at Persona Voice Sink; verify it manually before
+restarting or uninstalling.
+
+## Native helper does not build or self-test
+
+Run the target-native commands on the target OS:
+
+```bash
 bun run build:native
 bun run test:native
 ```
 
-The helpers require macOS Core Audio frameworks and cannot be produced as a functioning relay on
-Windows/Linux. Include the first compiler error, not only the final script exit.
+- macOS requires Xcode Command Line Tools and Core Audio frameworks;
+- Linux requires a C++20 compiler, `pkg-config`, PipeWire development headers, and a running
+  PipeWire session for native self-tests;
+- Windows requires MSVC, CMake, and the Windows SDK. Driver source additionally needs the WDK.
 
-## Audio Capture permission is missing
+Include the first compiler/helper error, not only the final script exit.
 
-Symptoms include capture readiness timeout or a permission-related Core Audio error.
+## macOS Audio Capture permission is missing
 
-1. Open System Settings → Privacy & Security and review Audio Capture access.
-2. Grant access to the development Electron app/terminal as appropriate for the current run mode.
+1. Open **System Settings → Privacy & Security** and review Audio Capture access.
+2. Grant access to the development Electron app/terminal or packaged app as appropriate.
 3. Quit Persona Voice cleanly and restart it.
-4. Run `bun run smoke:capture:mac` only if you intentionally want a live permissioned smoke.
+4. Run `bun run smoke:capture:mac` only for an intentional live permissioned smoke.
 
-TCC is not bypassed. Repeatedly relaunching without resolving the OS decision will not create a safe
-route.
+TCC is not bypassed. macOS older than 14.2 cannot use the process-tap route.
 
 ## Source application is not found
 
 - Start ChatGPT or Codex before refreshing sources.
-- If a pinned source was updated or moved, select it again so its executable identity is refreshed.
-- Automatic mode matches ChatGPT/Codex process trees and excludes Persona Voice's own tree.
-- Verify that the selected app is running in the same user session.
+- If both are running, explicitly choose one where the platform requires a unique route.
+- Re-select an app after its executable identity moves or changes.
+- Verify that the source and Persona Voice run in the same user audio session.
+- On Linux, check that the selected PipeWire identity maps unambiguously to `chatgpt` or `codex`.
 
-Windows/Linux can list sources without having a relay; successful discovery alone is not readiness.
+Discovery proves identity only. Readiness additionally requires the platform route, engine, and
+output checks.
 
 ## Relay stays Armed
 
-Armed means the original application route is unchanged and no Persona Voice output helper is open.
-The macOS helper waits for the selected process tree to show active input and then audible output.
-Chromium Audio Service descendants are discovered dynamically; starting the voice session after
-Persona Voice no longer requires refreshing the source or restarting either app.
+Armed/idle behavior is platform-specific:
 
-- Begin an actual voice session in ChatGPT/Codex.
-- Confirm microphone/WebRTC setup completed in the source app.
-- Wait for assistant audio, not only UI animation.
-- If no engagement occurs, Stop before changing source or voice settings.
+- macOS observes duplex I/O with no tap attached;
+- Linux keeps the owned policy bypass audible and waits to prove ingress capture plus bypass mute;
+- Windows may keep bounded standby passthrough after the app is assigned to Persona Voice Sink and
+  waits for current live-session membership proof.
 
-Do not interpret Armed as muted or converted playback.
+Begin a real voice session and wait for assistant audio, not only UI animation. Do not interpret
+Armed as converted playback.
 
 ## The beginning of a session is silent
 
-The current Seed-VC adapter intentionally discards the first three seconds after each prepared/reset
-engine session. This suppresses startup audio. It is not a performance delay and is separate from
-the native output prebuffer.
+Seed-VC intentionally discards the first three seconds after each prepared/reset engine session.
+Discarded source audio does not enter output or history. This policy is separate from the native
+output prebuffer.
 
-If silence continues after that window, inspect whether the runtime reached Running and whether the
-engine/output reported a fault.
+If silence continues, inspect whether the runtime reached Running and whether the platform route,
+engine, or output reported a fault.
 
 ## Output starts late or reports rebuffering
 
-The output helper has 64 bounded buffers and a configured 500 ms startup/rebuffer target. The
-current implementation begins/restarts output only after its buffer policy is satisfied. That value
-is not a 500 ms end-to-end promise.
+macOS/Linux output use a 500 ms startup/rebuffer target. Windows converted output also uses a
+500 ms startup target with a 1,500 ms bounded queue; Windows standby uses 40 ms startup and a
+250 ms capacity. These are configuration bounds, not end-to-end latency promises.
 
-Run the opt-in jitter smoke on the affected output device:
+The macOS-only jitter smoke is:
 
 ```bash
 bun run smoke:output:jitter:mac
 ```
 
-Report underrun count, device name, sample format, and hardware/OS details. Do not “fix” starvation
-by making queues unbounded or playing original audio.
+Report platform, device, underrun state, sample format, and hardware details. Do not make queues
+unbounded or substitute original audio to hide starvation.
 
-## Runtime is Faulted
+## Runtime is Faulted or restoration is unproven
 
-Faulted means a safety or cleanup step failed. The runtime may intentionally retain source
-suppression until explicit cleanup.
+Faulted means a processing, route, or cleanup step failed. The runtime can retain explicit route
+ownership/uncertainty until cleanup is proven.
 
 1. Use Stop and wait for it to complete.
-2. Do not start another relay session while Stop reports an error.
-3. Quit the launcher cleanly after a successful Stop, then relaunch.
-4. If the UI cannot stop, quit the source voice session and the launcher; record the error and
-   verify normal source-app audio before trying again.
+2. Do not start another relay while Stop reports an error.
+3. Follow the Linux topology or Windows manual-restore procedure above when applicable.
+4. After successful restoration, quit cleanly and relaunch.
+5. If restoration cannot be proved, stop the source voice session/application and inspect the OS
+   audio route before retrying.
 
-Never kill only the output/engine helper as a recovery shortcut while the capture route is engaged.
-Ordered cleanup matters.
+Never kill only the output or engine helper while capture/suppression remains engaged. Common
+terminal causes include sequence gaps, capture overflow, more than 6,000 ms queued source duration,
+engine timeout/exit, invalid PCM, output loss/underrun, route-helper exit, and failed restoration.
 
-Common terminal causes include:
+## macOS OBS / BlackHole recording bus is blocked
 
-- capture sequence gap or 64-slot ring overflow;
-- more than 6,000 ms of queued source duration (the UI target remains at most 1,000 ms);
-- engine conversion/control timeout or worker exit;
-- changed/invalid PCM format or body length;
-- output rejection, underrun recovery failure, device loss, or drain timeout;
-- route helper exit or failed suppression restoration.
+The optional macOS bus requires a local device with UID `BlackHole2ch_UID`. Persona Voice mirrors
+the same converted frames to the default output and BlackHole only when both prepare successfully.
+It rejects aggregate defaults and any default route already containing BlackHole because that could
+expose unrelated system audio or duplicate converted audio.
 
-If the selected app exits or relaunches, its resolved PID tree is no longer valid. Persona Voice
-faults instead of waiting forever or silently following an unrelated process. Stop the relay,
-reopen the app if needed, refresh sources, and Start again. `Route restoration unproven` is a
-stronger warning: do not assume the original route is restored; quit the source application and
-inspect diagnostics before retrying.
-
-## OBS / BlackHole recording bus is blocked
-
-The optional bus requires a local device with UID `BlackHole2ch_UID`. Install/configure BlackHole
-independently, then refresh diagnostics. Persona Voice writes the same converted frames to the
-default output and BlackHole; if either output cannot be prepared, engagement fails.
-
-Use a normal, non-aggregate listening device as the macOS default. Persona Voice blocks every
-default Aggregate/Multi-Output Device and any default route containing BlackHole: aggregate
-membership can change during capture, and BlackHole on that route would let OBS receive unrelated
-system audio or a duplicate converted stream. Persona Voice opens its own converted-only BlackHole
-sink.
-
-In recording software, avoid simultaneously recording the original application/system audio if the
-goal is a converted-only mix. BlackHole/OBS behavior and storage are outside Persona Voice's privacy
-boundary.
+Avoid also recording the original app/system stream when the goal is a converted-only recording.
+BlackHole/OBS storage is outside Persona Voice's privacy boundary.
 
 ## History is missing or remains on disk
 
-- History records only converted frames submitted to the active output session.
-- The first discarded three seconds do not enter history.
-- Disabling Save converted audio affects future frames only.
-- Clear history removes indexed WAV files; backups/snapshots/recording software may retain copies.
-- Retention cleanup runs every five minutes, so expiry is not an exact wall-clock deletion instant.
+- History records only converted frames submitted to output.
+- The first discarded three seconds are never stored.
+- Disabling history affects future frames only.
+- Clear history removes indexed WAV files; backups/snapshots/recording tools may retain copies.
+- Retention cleanup runs every five minutes, not at an exact expiry instant.
 
 See [Privacy](PRIVACY.md) for the complete storage boundary.
 
 ## Logs and local data
 
-Settings → Diagnostics can open the exact user-data directory. Typical files include:
+**Settings → Diagnostics** opens the exact user-data directory. Typical files include:
 
 ```text
 launcher-state.json
@@ -236,5 +295,5 @@ history/segments/*.wav
 Developers may set `CODEX_PERSONA_VOICE_DATA_DIR` to an absolute dedicated test directory. Never
 point it at a broad shared directory.
 
-If the issue can expose sensitive audio, local data, or route-control behavior, report it through
-[Security](../SECURITY.md) rather than a public issue.
+If the issue can expose sensitive audio, local data, driver/policy state, or route-control behavior,
+report it through [Security](../SECURITY.md) rather than a public issue.
