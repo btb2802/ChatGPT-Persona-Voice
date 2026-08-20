@@ -3,6 +3,7 @@
 const assert = require("node:assert/strict");
 const crypto = require("node:crypto");
 const { EventEmitter } = require("node:events");
+const path = require("node:path");
 const { PassThrough } = require("node:stream");
 const test = require("node:test");
 const { EngineMessageParser, encodeEngineMessage } = require("../electron/engine-protocol.cjs");
@@ -293,7 +294,7 @@ test("Seed-VC worker starts in isolated Python with injection variables removed"
   assert.equal(sanitized.PYTHONNOUSERSITE, "1");
   assert.equal(sanitized.TQDM_DISABLE, "1");
   assert.equal(sanitized.HOME, "/private/runtime");
-  assert.equal(sanitized.XDG_CACHE_HOME, "/private/runtime/.cache");
+  assert.equal(sanitized.XDG_CACHE_HOME, path.join("/private/runtime", ".cache"));
   assert.equal(sanitized.HF_HUB_DISABLE_IMPLICIT_TOKEN, "1");
   for (const key of [
     "PYTHONPATH", "PYTHONHOME", "PYTORCH_ENABLE_MPS_FALLBACK",

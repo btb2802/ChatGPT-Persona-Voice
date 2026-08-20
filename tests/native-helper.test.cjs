@@ -2,6 +2,7 @@
 
 const assert = require("node:assert/strict");
 const { EventEmitter } = require("node:events");
+const path = require("node:path");
 const test = require("node:test");
 const { probeNativeHelper, resolveNativeHelperPath } = require("../electron/native-helper.cjs");
 const { encodeFrame } = require("../electron/native-protocol.cjs");
@@ -63,11 +64,11 @@ test("native helper paths distinguish development and packaged layouts", () => {
   assert.equal(resolveNativeHelperPath("capture", {
     platform: "darwin",
     projectRoot: "/project",
-  }), "/project/native/bin/darwin/cpv-audio-capture");
+  }), path.join("/project", "native", "bin", "darwin", "cpv-audio-capture"));
   assert.equal(resolveNativeHelperPath("output", {
     platform: "darwin",
     isPackaged: true,
     resourcesPath: "/App/Contents/Resources",
-  }), "/App/Contents/Resources/native/darwin/cpv-audio-output");
+  }), path.join("/App/Contents/Resources", "native", "darwin", "cpv-audio-output"));
   assert.equal(resolveNativeHelperPath("capture", { platform: "linux" }), null);
 });
