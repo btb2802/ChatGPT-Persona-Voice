@@ -176,11 +176,11 @@ Maintainers may request a smaller change, more failure injection, or contract ev
 reviewing product polish. A generated local installer is not release evidence; see
 [Release engineering](docs/RELEASE.md).
 
-## Commit and changelog guidance
+## Commit guidance
 
-Use clear imperative commit subjects. Update [CHANGELOG.md](CHANGELOG.md) for user-visible behavior,
-protocol changes, new dependencies/materials, security/privacy changes, or platform status changes.
-Do not assign a release date or mark a platform supported without maintainer release approval.
+Use clear imperative commit subjects. Describe user-visible behavior, protocol changes, new
+dependencies/materials, security/privacy changes, and platform status changes in the pull request.
+Do not mark a platform supported without maintainer release approval and qualification evidence.
 
 ## License of contributions
 

@@ -149,7 +149,7 @@ The presence of `pw-dump`, `pw-cli`, and `pw-link` proves tool availability only
 The tag workflow automates artifact transport, but the following qualification sequence still
 defines a supported release:
 
-1. Freeze a reviewed scope and update `CHANGELOG.md`.
+1. Freeze a reviewed scope and write the release notes from the reviewed pull requests.
 2. Run frozen install, unit tests, typecheck, renderer build, native tests, engine conformance, and
    permissioned end-to-end qualification on named hosts.
 3. Audit dependency/model locks, submodule revision, voices, licenses, notices, and SBOM/provenance.
@@ -166,6 +166,6 @@ defines a supported release:
 The package currently reports `0.1.0`. A release tag must be exactly `v0.1.0` (or the matching future
 package version), otherwise publication fails. Until a public compatibility contract exists,
 changes to CPV1/CPVE, settings, and adapter behavior may be breaking and must be called out in the
-changelog.
+release notes.
 
 See [Roadmap](ROADMAP.md) for the evidence order and [Security](../SECURITY.md) for reporting.

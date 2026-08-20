@@ -2,7 +2,7 @@
 
 <p align="center">
   <strong>Real-time voice changing for ChatGPT (Codex).</strong><br>
-  Local Seed-VC conversion with near-real-time playback on Apple Silicon.
+  Local-first Seed-VC conversion with near-real-time playback.
 </p>
 
 <p align="center">
@@ -14,7 +14,7 @@
 <p align="center">
   <a href="https://github.com/miuuyy/ChatGPT-Persona-Voice/actions/workflows/ci.yml"><img src="https://github.com/miuuyy/ChatGPT-Persona-Voice/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="MIT license"></a>
-  <img src="https://img.shields.io/badge/macOS-Apple%20Silicon-black?logo=apple" alt="Apple Silicon macOS">
+  <img src="https://img.shields.io/badge/app-desktop-black?logo=electron" alt="Desktop app">
   <img src="https://img.shields.io/badge/inference-local-10a37f" alt="Local inference">
   <img src="https://img.shields.io/badge/engine-Seed--VC-7c5cff" alt="Seed-VC engine">
 </p>
@@ -33,24 +33,24 @@ target timbre locally without sending voice conversion to a cloud API. Output qu
 vary with the machine, source audio, and selected reference.
 
 > [!IMPORTANT]
-> The transparent end-to-end relay is currently an experimental preview for Apple Silicon Macs
-> running macOS 14.2 or newer. Windows and Linux shells exist, but their native capture,
-> suppression, conversion, and output routes are not implemented yet.
+> Voice conversion currently performs best with Japanese and Chinese source speech. English and
+> other languages work, but pronunciation and timbre consistency can vary. Contributions that
+> improve multilingual quality, reference preparation, and engine profiles are especially welcome.
 
 ## Why Persona Voice
 
 - **Near-real-time conversion.** The current Seed-VC profile processes fixed 300 ms blocks and
   streams 20 ms output frames. A dated M4 Pro engine-only smoke measured 212 ms p95 inference;
   this is not a universal end-to-end latency guarantee.
-- **The original voice is replaced, not layered.** A process-scoped Core Audio tap suppresses the
+- **The original voice is replaced, not layered.** A process-scoped native route suppresses the
   selected app only after capture and output are proven ready.
 - **Local inference.** Once installed, the locked model runtime performs active conversion
-  offline on Apple MPS. No voice API key is required.
+  offline on the selected hardware profile. No voice API key is required.
 - **Voice presets and local references.** The included catalog contains credited VOICEVOX
   identities and a small set of community/demo references. Local manifests can add private
   references without committing them to the repository.
-- **Fail-closed routing.** Missing permissions, an unhealthy engine, an unsafe audio route, or a
-  full queue produces an explicit blocker instead of leaking unconverted audio through the relay.
+- **Personalisation.** Pick a bundled identity, add an authorized private reference, and pair each
+  voice with its own character scene without changing the conversion pipeline.
 - **Private history controls.** History is off by default. If enabled, only converted output can be
   stored, with six-hour cleanup by default and an immediate clear action.
 
@@ -60,7 +60,7 @@ vary with the machine, source audio, and selected reference.
 ChatGPT / Codex app
         │ selected process audio
         ▼
-Core Audio process tap ── suppress original route
+Native process-audio route ── suppress original route
         │  bounded PCM
         ▼
 Local Seed-VC worker ── 300 ms input / 20 ms output frames

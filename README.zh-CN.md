@@ -2,7 +2,7 @@
 
 <p align="center">
   <strong>在 ChatGPT 桌面应用说话时，实时替换它的声音。</strong><br>
-  在 Apple Silicon 上通过本地 Seed-VC 实现近实时播放。
+  通过本地优先的 Seed-VC 实现近实时播放。
 </p>
 
 <p align="center">
@@ -14,7 +14,7 @@
 <p align="center">
   <a href="https://github.com/miuuyy/ChatGPT-Persona-Voice/actions/workflows/ci.yml"><img src="https://github.com/miuuyy/ChatGPT-Persona-Voice/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="MIT license"></a>
-  <img src="https://img.shields.io/badge/macOS-Apple%20Silicon-black?logo=apple" alt="Apple Silicon macOS">
+  <img src="https://img.shields.io/badge/app-desktop-black?logo=electron" alt="桌面应用">
   <img src="https://img.shields.io/badge/inference-local-10a37f" alt="Local inference">
   <img src="https://img.shields.io/badge/engine-Seed--VC-7c5cff" alt="Seed-VC engine">
 </p>
@@ -31,22 +31,22 @@ Codex Persona Voice 是一个独立、本地优先的 ChatGPT 与 Codex 语音�
 云端 API。输出质量与时序会随设备、输入音频和所选参考而变化。
 
 > [!IMPORTANT]
-> 完整透明中继目前只为运行 macOS 14.2 或更高版本的 Apple Silicon Mac 提供实验性
-> 预览。Windows 与 Linux 已有应用外壳，但原生捕获、原声抑制、转换和输出链路尚未实现。
+> 当前语音转换在日语和中文输入上效果最佳。英语及其他语言也可以工作，但发音和音色一致性
+> 可能有所波动。我们尤其欢迎帮助改进多语言质量、参考音频处理与引擎配置的贡献。
 
 ## 为什么选择 Persona Voice
 
 - **近实时转换。** 当前 Seed-VC 配置处理固定 300 ms 输入块，并流式返回 20 ms 输出帧。
   一次有日期记录的 M4 Pro 纯引擎测试测得 p95 推理耗时为 212 ms；这不是对所有设备的
   端到端延迟承诺。
-- **替换原声，而不是叠加播放。** 仅当捕获与输出全部验证就绪后，进程级 Core Audio
-  tap 才会抑制选定应用的原始音轨。
-- **本地推理。** 安装完成后，锁定版本的模型运行时通过 Apple MPS 离线完成实时转换，
+- **替换原声，而不是叠加播放。** 仅当捕获与输出全部验证就绪后，进程级原生音频路由
+  才会抑制选定应用的原始音轨。
+- **本地推理。** 安装完成后，锁定版本的模型运行时通过所选硬件配置离线完成实时转换，
   不需要语音 API 密钥。
 - **预设声音与私有参考音频。** 内置目录包含标注来源的 VOICEVOX 角色，以及少量社区和
   演示参考。你也可以通过本地 manifest 添加不进入 Git 仓库的私有参考。
-- **故障时默认阻断。** 权限缺失、引擎异常、不安全的音频路由或队列溢出都会产生明确
-  错误，而不会悄悄放出未经转换的声音。
+- **个性化。** 选择内置音色、添加你有权使用的私有参考音频，并为每个声音搭配独立角色场景，
+  无需修改转换流水线。
 - **可控的本地历史。** 历史记录默认关闭。启用后也只保存转换后的音频，并默认在六小时后
   自动清理，也可立即清空。
 
@@ -56,7 +56,7 @@ Codex Persona Voice 是一个独立、本地优先的 ChatGPT 与 Codex 语音�
 ChatGPT / Codex 应用
         │ 选定进程的音频
         ▼
-Core Audio 进程 tap ── 抑制原始音轨
+原生进程音频路由 ── 抑制原始音轨
         │ 有界 PCM
         ▼
 本地 Seed-VC 工作进程 ── 300 ms 输入 / 20 ms 输出帧

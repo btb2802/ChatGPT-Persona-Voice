@@ -2,7 +2,7 @@
 
 <p align="center">
   <strong>ChatGPT デスクトップアプリが話している最中に、その声を変える。</strong><br>
-  Apple Silicon 上のローカル Seed-VC による、ほぼリアルタイムの再生。
+  ローカルファーストの Seed-VC による、ほぼリアルタイムの再生。
 </p>
 
 <p align="center">
@@ -14,7 +14,7 @@
 <p align="center">
   <a href="https://github.com/miuuyy/ChatGPT-Persona-Voice/actions/workflows/ci.yml"><img src="https://github.com/miuuyy/ChatGPT-Persona-Voice/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="MIT license"></a>
-  <img src="https://img.shields.io/badge/macOS-Apple%20Silicon-black?logo=apple" alt="Apple Silicon macOS">
+  <img src="https://img.shields.io/badge/app-desktop-black?logo=electron" alt="デスクトップアプリ">
   <img src="https://img.shields.io/badge/inference-local-10a37f" alt="Local inference">
   <img src="https://img.shields.io/badge/engine-Seed--VC-7c5cff" alt="Seed-VC engine">
 </p>
@@ -33,9 +33,9 @@ Codex Persona Voice は、ChatGPT と Codex の音声モード向けに作られ
 選択した参照音声によって変わります。
 
 > [!IMPORTANT]
-> 完全な透過リレーは現在、macOS 14.2 以降を搭載した Apple Silicon Mac 向けの
-> 実験的プレビューです。Windows と Linux にはアプリシェルがありますが、ネイティブの
-> 取得、元音声の抑制、変換、出力経路はまだ実装されていません。
+> 現在の音声変換は、日本語と中国語の入力音声で最も良い結果が得られます。英語やその他の
+> 言語も動作しますが、発音や声質の一貫性には差が出ることがあります。多言語品質、参照音声
+> の準備、エンジンプロファイルを改善するコントリビューションを特に歓迎します。
 
 ## Persona Voice を使う理由
 
@@ -43,15 +43,15 @@ Codex Persona Voice は、ChatGPT と Codex の音声モード向けに作られ
   処理し、20 ms の出力フレームをストリーミングします。日付付きの M4 Pro エンジン単体
   スモークでは p95 推論時間 212 ms を計測しましたが、全環境のエンドツーエンド遅延を
   保証する値ではありません。
-- **元の声へ重ねず、置き換える。** プロセス単位の Core Audio tap は、取得と出力の
+- **元の声へ重ねず、置き換える。** プロセス単位のネイティブ音声経路は、取得と出力の
   準備が確認できた後にのみ、選択アプリの元音声を抑制します。
-- **ローカル推論。** インストール後、固定済みモデルランタイムは Apple MPS 上で
+- **ローカル推論。** インストール後、固定済みモデルランタイムは選択されたハードウェア上で
   オフライン変換を行います。音声 API キーは不要です。
 - **プリセットとローカル参照音声。** クレジット付き VOICEVOX キャラクターと、少数の
   コミュニティ／デモ参照音声を収録しています。Git に追加せず、ローカル manifest から
   非公開の参照音声を追加することもできます。
-- **フェイルクローズ設計。** 権限不足、エンジン異常、安全でない音声経路、キュー飽和は、
-  未変換音声を黙って流すのではなく明示的なブロッカーになります。
+- **パーソナライゼーション。** 収録済みの声を選ぶほか、権利を持つ非公開の参照音声を追加し、
+  変換パイプラインを変えずに各ボイスへ専用キャラクターシーンを組み合わせられます。
 - **ローカル履歴を管理可能。** 履歴は既定で無効です。有効にした場合も保存対象は変換済み
   音声だけで、既定では 6 時間後に自動削除され、すぐに全消去できます。
 
@@ -61,7 +61,7 @@ Codex Persona Voice は、ChatGPT と Codex の音声モード向けに作られ
 ChatGPT / Codex アプリ
         │ 選択プロセスの音声
         ▼
-Core Audio プロセス tap ── 元の経路を抑制
+ネイティブのプロセス音声経路 ── 元の経路を抑制
         │ 有界 PCM
         ▼
 ローカル Seed-VC ワーカー ── 300 ms 入力 / 20 ms 出力フレーム
