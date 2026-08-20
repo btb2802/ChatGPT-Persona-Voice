@@ -85,17 +85,10 @@ Node.js アクセスがなく、検証済み IPC、ライフサイクル、設�
 
 ## デモ
 
-<p align="center">
-  <a href="assets/demo.mp4"><img src="assets/architecture-visual-v2.png" alt="実際の 1080p MP4 Persona Voice デモを開く" width="960"></a>
-</p>
-
-<p align="center">
-  <a href="assets/demo.mp4"><strong>▶ 1080p デモを見る</strong></a>
-</p>
+https://github.com/user-attachments/assets/f43f9f90-a76f-4984-b061-145aa7db5467
 
 デモは実際の H.264 MP4 で、クレジット表記された `VOICEVOX:小夜/SAYO` の参照音声を
-使用しています。GitHub はリポジトリ内の `<video>` を表示しないため、GitHub の
-user-attachments URL を用意できるまでは上の直接リンクを使用します。
+使用しています。
 
 ## クイックスタート
 

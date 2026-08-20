@@ -78,17 +78,9 @@ Persona Voice 待命时，各平台都会维持正常播放：macOS 保持音频
 
 ## 演示
 
-<p align="center">
-  <a href="assets/demo.mp4"><img src="assets/architecture-visual-v2.png" alt="打开真实的 1080p MP4 Persona Voice 演示" width="960"></a>
-</p>
+https://github.com/user-attachments/assets/f43f9f90-a76f-4984-b061-145aa7db5467
 
-<p align="center">
-  <a href="assets/demo.mp4"><strong>▶ 观看 1080p 演示</strong></a>
-</p>
-
-演示是实际的 H.264 MP4，并使用已注明出处的 `VOICEVOX:小夜/SAYO` 参考音频。GitHub
-不会渲染仓库内的 `<video>` 元素，因此在提供 GitHub user-attachments URL 之前保留上方
-直接链接。
+演示是实际的 1080p H.264 录制，并使用已注明出处的 `VOICEVOX:小夜/SAYO` 参考音频。
 
 ## 快速开始
 

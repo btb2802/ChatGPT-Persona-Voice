@@ -1,7 +1,3 @@
-
-
-https://github.com/user-attachments/assets/f43f9f90-a76f-4984-b061-145aa7db5467
-
 <h1 align="center">ChatGPT Persona Voice</h1>
 
 <p align="center">
@@ -87,17 +83,9 @@ and [engine contract](docs/ENGINE_CONTRACT.md).
 
 ## Demo
 
-<p align="center">
-  <a href="assets/demo.mp4"><img src="assets/architecture-visual-v2.png" alt="Open the real 1080p MP4 Persona Voice demo" width="960"></a>
-</p>
+https://github.com/user-attachments/assets/f43f9f90-a76f-4984-b061-145aa7db5467
 
-<p align="center">
-  <a href="assets/demo.mp4"><strong>▶ Watch the 1080p demo</strong></a>
-</p>
-
-The demo is a real H.264 MP4 and uses the credited `VOICEVOX:小夜/SAYO` reference. GitHub does not
-render a repository-local `<video>` element, so the direct link remains until a GitHub
-user-attachments URL is available.
+The demo is a real 1080p H.264 recording and uses the credited `VOICEVOX:小夜/SAYO` reference.
 
 ## Quick start
 
