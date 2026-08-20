@@ -157,12 +157,14 @@ test("experimental packages are local-only and receive a SHA-256 manifest", () =
   assert.doesNotMatch(packaging, /runtime\.json/);
 });
 
-test("tag releases publish exact updater assets and one canonical checksum manifest", () => {
+test("tag releases publish qualified macOS and Linux assets with one canonical checksum manifest", () => {
   const ciWorkflow = fs.readFileSync(path.join(root, ".github", "workflows", "ci.yml"), "utf8");
   const workflow = fs.readFileSync(path.join(root, ".github", "workflows", "release.yml"), "utf8");
-  for (const runner of ["macos-15", "windows-latest", "ubuntu-latest"]) {
+  for (const runner of ["macos-15", "ubuntu-latest"]) {
     assert.match(workflow, new RegExp(runner));
   }
+  assert.doesNotMatch(workflow, /windows-latest/);
+  assert.doesNotMatch(workflow, /artifacts\/\*\.exe/);
   assert.match(workflow, /tags: \["v\*"\]/);
   assert.match(ciWorkflow, /bun-version: 1\.3\.14/);
   assert.match(workflow, /bun-version: 1\.3\.14/);
@@ -183,8 +185,8 @@ test("tag releases publish exact updater assets and one canonical checksum manif
   assert.match(workflow, /openssl pkeyutl -sign -rawin/);
   assert.match(workflow, /environment: release-signing/);
   assert.match(workflow, /gh release create/);
+  assert.match(workflow, /--draft/);
   assert.match(workflow, /--generate-notes/);
-  assert.doesNotMatch(workflow, /gh release create[\s\S]*?--draft/);
 });
 
 test("packaged Electron disables unsafe runtime switches and validates its ASAR", () => {

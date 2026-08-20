@@ -122,10 +122,11 @@ compilation, and non-permissioned native self-tests on macOS, Windows, and Linux
 inside a private PipeWire session. These checks prove build/protocol contracts, not permissioned
 live routing, CUDA performance, clean installation, or release support.
 
-The tag workflow builds target-native DMG/ZIP, EXE, and AppImage artifacts and signs a canonical
-update manifest. Windows packaging is designed to stop unless an externally Microsoft-signed driver
-package is supplied and verified. Transport, checksums, or a published artifact do not replace the
-platform gates above.
+The `v0.1.0` tag workflow builds target-native DMG/ZIP and AppImage artifacts and signs a canonical
+update manifest. Windows remains source-only: its native components still compile and run contract
+self-tests in CI, while Windows packaging stops unless an externally Microsoft-signed driver package
+is supplied and verified. Transport, checksums, or a published artifact do not replace the platform
+gates above.
 
 See [Release engineering](RELEASE.md) for artifact policy and [Roadmap](ROADMAP.md) for the remaining
 evidence sequence.

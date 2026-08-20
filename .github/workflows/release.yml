@@ -20,8 +20,6 @@ jobs:
         include:
           - runner: macos-15
             command: package:mac
-          - runner: windows-latest
-            command: package:win
           - runner: ubuntu-latest
             command: package:linux
 
@@ -125,7 +123,6 @@ jobs:
           path: |
             artifacts/*.dmg
             artifacts/*.zip
-            artifacts/*.exe
             artifacts/*.AppImage
             artifacts/*.blockmap
           if-no-files-found: error
@@ -217,4 +214,5 @@ jobs:
           gh release create "$GITHUB_REF_NAME" "${release_files[@]}" \
             --repo "$GITHUB_REPOSITORY" \
             --title "$GITHUB_REF_NAME" \
+            --draft \
             --generate-notes

@@ -1,6 +1,7 @@
 # Release engineering
 
-Status: no supported production release exists.
+Status: `v0.1.0` is the first public preview release for macOS and Linux. Windows is source-only
+until the owned virtual-sink driver receives a Microsoft kernel-policy signature.
 
 The repository contains complete live-accepted source paths for Apple Silicon macOS and NVIDIA
 Linux x64. Windows x64 has implemented source/contracts for capture, output, owned-sink routing,
@@ -12,8 +13,9 @@ and live development evidence do not complete distribution qualification.
 
 - `bun run package:mac`, `package:win`, and `package:linux` are target-host packaging commands, not
   support declarations. Cross-target packaging is rejected.
-- Normal CI does not publish. A `v*` tag matching `package.json` starts the separate macOS ARM64,
-  Windows x64, and Linux x64 packaging workflow.
+- Normal CI does not publish. A `v*` tag matching `package.json` starts the separate macOS ARM64 and
+  Linux x64 packaging workflow. Windows continues to compile and run native contract tests in CI,
+  but the tag workflow does not publish a Windows installer.
 - Local packaging writes `SHA256SUMS`. Tag publication regenerates one canonical manifest covering
   all uploaded artifacts/notices and signs its exact bytes with the protected Ed25519 update key.
 - All target packages carry the small pinned `uv` bootstrap and platform engine lock; the large
@@ -26,8 +28,8 @@ and live development evidence do not complete distribution qualification.
   kernel-policy-signed `PersonaVoiceSink.inf`, `cpv-audio-sink.cat`, and `cpv-audio-sink.sys` before
   packaging. The elevated NSIS installer then owns driver install/removal. Unsigned output is
   rejected and never substituted.
-- Because that externally signed driver is not currently available, the Windows clean-binary gate
-  and an all-platform tag publication cannot be described as complete.
+- Because that externally signed driver is not currently available, Windows is distributed as
+  reviewed source rather than a nonfunctional installer.
 - Any generated DMG, ZIP, EXE, or AppImage remains experimental until its platform gates below pass.
 
 ## GitHub Releases update channel

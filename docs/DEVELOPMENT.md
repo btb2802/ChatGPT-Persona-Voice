@@ -272,8 +272,9 @@ Cross-packaging is rejected. The artifacts remain experimental:
 - Windows packaging requires `CODEX_PERSONA_VOICE_SIGNED_DRIVER_DIR` to point to a Microsoft
   kernel-policy-signed driver package. The packager verifies it and refuses unsigned output.
 
-The tag workflow builds on each target OS, regenerates one canonical `SHA256SUMS`, signs that
-manifest, and publishes GitHub Release assets. Artifact transport is not support evidence.
+The `v0.1.0` tag workflow builds the qualified macOS and Linux preview packages, regenerates one
+canonical `SHA256SUMS`, signs that manifest, and creates a draft GitHub Release. Windows remains a
+source build until its driver is Microsoft-signed. Artifact transport is not support evidence.
 
 ## Pull requests
 

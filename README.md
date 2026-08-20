@@ -152,6 +152,9 @@ realtime inference path must be prepared. The interface language can be changed 
 
 ### Packaged builds and engine installation
 
+The `v0.1.0` release publishes prebuilt macOS and Linux packages. Windows remains source-only until
+the owned virtual-sink driver has a Microsoft kernel-policy signature.
+
 The launcher package stays small by keeping the model runtime separate. Open
 **Settings → Voice → Install engine** to install the pinned private runtime into application data.
 The installer verifies the managed Python runtime, package lock, model revisions, and SHA-256
