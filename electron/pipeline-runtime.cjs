@@ -379,11 +379,17 @@ class PipelineRuntime extends EventEmitter {
         return;
       }
       this.state = "running";
+      if (typeof this.sessions.source?.activate === "function") {
+        await this.sessions.source.activate();
+      }
       this.publish();
       return;
     }
 
     if (this.state === "running" || this.state === "engaging") {
+      if (typeof this.sessions.source?.pause === "function") {
+        await this.sessions.source.pause();
+      }
       this.state = "armed";
       this.publish();
       const errors = await this.suspendProcessing();
