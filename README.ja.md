@@ -1,8 +1,7 @@
-<h1 align="center">ChatGPT Persona Voice</h1>
+<h1 align="center">ChatGPT と Codex の出力音声をカスタマイズ</h1>
 
 <p align="center">
-  <strong>ChatGPT デスクトップアプリが話している最中に、その声を変える。</strong><br>
-  ローカルファーストの Seed-VC による、ほぼリアルタイムの再生。
+  <strong>Persona Voice はアシスタントの音声をローカルで置き換え、ほぼリアルタイムで再生します。</strong>
 </p>
 
 <p align="center">
@@ -23,10 +22,9 @@
   <img src="assets/architecture-visual-v2.png" alt="ChatGPT の音声がローカル Seed-VC レイヤーを経由してスピーカーへ流れる構成" width="1200">
 </p>
 
-Codex Persona Voice は、ChatGPT と Codex の音声モードの声をほぼリアルタイムで
-変える独立したデスクトップアプリです。会話は元のアプリに残り、音声変換は手元の端末で
-実行されます。品質とタイミングは、ハードウェア、入力音声、選択した参照音声によって
-変わります。
+Persona Voice は、ChatGPT と Codex の読み上げ音声を選んだ声に置き換えるデスクトップ
+アプリです。会話と操作は元のアプリに残り、音声変換はこのデバイス上で実行されます。
+品質とタイミングは、ハードウェア、入力音声、選択した参照音声によって変わります。
 
 > [!IMPORTANT]
 > 現在の音声変換は、日本語と中国語の入力音声で最も良い結果が得られます。英語やその他の

@@ -1,8 +1,7 @@
-<h1 align="center">ChatGPT Persona Voice</h1>
+<h1 align="center">Custom output voices for ChatGPT and Codex</h1>
 
 <p align="center">
-  <strong>Real-time voice changing for ChatGPT (Codex).</strong><br>
-  Local-first Seed-VC conversion with near-real-time playback.
+  <strong>Persona Voice replaces assistant speech locally, with near-real-time playback.</strong>
 </p>
 
 <p align="center">
@@ -23,10 +22,9 @@
   <img src="assets/architecture-visual-v2.png" alt="ChatGPT audio flowing through a local Seed-VC layer to the speaker" width="1200">
 </p>
 
-Codex Persona Voice is an independent desktop app that changes the voice of ChatGPT and Codex voice
-mode in near real time. The conversation stays in the source app, while voice conversion runs
-locally on your machine. Output quality and timing vary with the hardware, source audio, and
-selected reference.
+Persona Voice replaces the spoken output of ChatGPT and Codex with a voice you choose. The
+conversation and controls remain in the source app, while conversion runs locally on your device.
+Output quality and timing vary with the hardware, source audio, and selected reference.
 
 > [!IMPORTANT]
 > Voice conversion currently performs best with Japanese and Chinese source speech. English and

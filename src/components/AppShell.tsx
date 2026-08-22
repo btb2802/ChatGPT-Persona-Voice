@@ -43,7 +43,7 @@ export function EmptyBridge() {
       <span className="bridge-mark">
         <VoiceMark />
       </span>
-      <h1>Codex Persona Voice</h1>
+      <h1>Persona Voice</h1>
       <p>Desktop bridge unavailable · デスクトップブリッジを利用できません · 桌面桥接不可用</p>
     </main>
   );

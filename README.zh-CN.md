@@ -1,8 +1,7 @@
-<h1 align="center">ChatGPT Persona Voice</h1>
+<h1 align="center">自定义 ChatGPT 和 Codex 的输出声音</h1>
 
 <p align="center">
-  <strong>在 ChatGPT 桌面应用说话时，实时替换它的声音。</strong><br>
-  通过本地优先的 Seed-VC 实现近实时播放。
+  <strong>Persona Voice 在本地替换助手语音，并以近实时速度播放。</strong>
 </p>
 
 <p align="center">
@@ -23,9 +22,9 @@
   <img src="assets/architecture-visual-v2.png" alt="ChatGPT 音频经过本地 Seed-VC 层后输出到扬声器" width="1200">
 </p>
 
-Codex Persona Voice 是一款独立桌面应用，能够近实时改变 ChatGPT 与 Codex 语音模式的
-声音。对话仍留在原应用中，语音转换则在你的设备上本地运行。输出质量与时序会因
-硬件、输入音频和所选参考而异。
+Persona Voice 是一款桌面应用，可将 ChatGPT 和 Codex 的语音输出替换为你选择的声音。
+对话和控制仍保留在原应用中，语音转换则在本设备上运行。输出质量与时序会因硬件、
+输入音频和所选参考而异。
 
 > [!IMPORTANT]
 > 当前语音转换在日语和中文输入上效果最佳。英语及其他语言也可以工作，但发音和音色一致性

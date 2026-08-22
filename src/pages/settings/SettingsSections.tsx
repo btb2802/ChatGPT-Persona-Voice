@@ -762,7 +762,7 @@ export function SettingsSections({
       </div>
       <div className="settings-block">
         <div className="settings-block-heading">
-          <h3>Codex Persona Voice</h3>
+          <h3>Persona Voice</h3>
           <p>
             {formatMessage(messages.settings.diagnostics.version, {
               version: snapshot.app.version,
