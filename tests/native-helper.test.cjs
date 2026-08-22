@@ -40,9 +40,27 @@ test("native helper probe accepts one versioned readiness frame", async () => {
     protocolVersion: 1,
   }))));
   child.exitCode = 0;
-  child.emit("exit", 0, null);
+  child.emit("close", 0, null);
   assert.equal((await probing).helper, "capture");
   assert.deepEqual(spawnedArguments, ["--self-test", "--device-uid", "device-1"]);
+  assert.deepEqual(child.kills, []);
+});
+
+test("native helper probe drains stdout after process exit before deciding self-test status", async () => {
+  const child = fakeChild();
+  const probing = probeNativeHelper("/helper", "route", {
+    spawnProcess: () => child,
+    timeoutMs: 100,
+  });
+  child.exitCode = 0;
+  child.emit("exit", 0, null);
+  child.stdout.emit("data", encodeFrame("ready", Buffer.from(JSON.stringify({
+    type: "ready",
+    helper: "route",
+    protocolVersion: 1,
+  }))));
+  child.emit("close", 0, null);
+  assert.equal((await probing).helper, "route");
   assert.deepEqual(child.kills, []);
 });
 

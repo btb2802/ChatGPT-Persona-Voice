@@ -400,6 +400,66 @@ test("an engine session is re-primed after route engagement and before output op
   await runtime.stop();
 });
 
+test("a pausable source releases handoff audio only after conversion output is ready", async () => {
+  const log = [];
+  const fixture = adapters({ initialRouteState: "armed", log });
+  const sourceOpen = fixture.value.source.open;
+  fixture.value.source.open = async (config, onFrame, onError) => {
+    let active = false;
+    let pending = [];
+    const session = await sourceOpen(config, (frame) => {
+      if (active) onFrame(frame);
+      else pending.push(frame);
+    }, onError);
+    return {
+      ...session,
+      activate: async () => {
+        log.push("source.activate");
+        const queued = pending;
+        pending = [];
+        active = true;
+        for (const frame of queued) onFrame(frame);
+      },
+      pause: async () => {
+        log.push("source.pause");
+        active = false;
+      },
+    };
+  };
+  const enginePrepare = fixture.value.engine.prepare;
+  const priming = deferred();
+  fixture.value.engine.prepare = async (...args) => ({
+    ...(await enginePrepare(...args)),
+    prime: async () => {
+      log.push("engine.prime");
+      await priming.promise;
+    },
+  });
+  const runtime = new PipelineRuntime(fixture.value);
+
+  await runtime.start({});
+  fixture.emitStatus("engaged");
+  await new Promise((resolve) => setImmediate(resolve));
+  fixture.emitFrame(sourceFrame(30));
+  fixture.emitFrame(sourceFrame(31));
+  assert.equal(log.includes("engine.convert"), false);
+  priming.resolve();
+  await runtime.transitionQueue;
+  await runtime.frameQueue;
+
+  assert.equal(runtime.snapshot().state, "running");
+  assert.deepEqual(
+    log.filter((entry) => ["engine.prime", "output.prepare", "source.activate"].includes(entry)),
+    ["engine.prime", "output.prepare", "source.activate"],
+  );
+  assert.equal(log.filter((entry) => entry === "engine.convert").length, 2);
+
+  fixture.emitStatus("armed");
+  await runtime.transitionQueue;
+  assert.ok(log.indexOf("source.pause") < log.lastIndexOf("engine.reset"));
+  await runtime.stop();
+});
+
 test("coalesced armed and engaged statuses still reset the engine between voice sessions", async () => {
   const log = [];
   const fixture = adapters({ log });

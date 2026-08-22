@@ -3,6 +3,7 @@
 const assert = require("node:assert/strict");
 const test = require("node:test");
 const {
+  MAX_CONVERSION_HANDOFF_QUEUED_MS,
   MAX_PASSTHROUGH_QUEUED_MS,
   WindowsRouteLifecycle,
 } = require("../electron/windows-route-lifecycle.cjs");
@@ -126,12 +127,14 @@ test("Windows Start hands the retained stream to conversion and Stop returns to 
     (status) => statuses.push(status),
   );
   assert.equal(value.outputs[0].closed, true);
-  assert.equal(value.opens[0].closed, true);
+  assert.equal(value.opens[0].closed, false);
   assert.equal(value.baseCloseCount(), 0);
   assert.equal(guard.armed, true);
 
   const stream = value.lifecycle.open(settings, (audio) => conversionFrames.push(audio), () => {});
   value.emitFrame(frame(7));
+  assert.equal(conversionFrames.length, 0);
+  await stream.activate();
   assert.equal(conversionFrames.length, 1);
   assert.equal(statuses.at(-1).state, "engaged");
   await stream.close();
@@ -141,9 +144,60 @@ test("Windows Start hands the retained stream to conversion and Stop returns to 
   assert.equal(value.outputs.length, 2);
   assert.equal(value.outputs[1].config.outputMode, "passthrough");
   assert.equal(value.baseCloseCount(), 0);
+  assert.equal(value.opens.length, 1);
+  assert.equal(value.opens[0].closed, false);
   value.emitFrame(frame(8));
   await nextTurn();
   assert.equal(value.outputs[1].writes.length, 1);
+});
+
+test("Windows conversion handoff retains every capture frame while standby output drains", async () => {
+  const value = fixture();
+  await value.lifecycle.startStandby(settings);
+  let finishStandbyClose;
+  value.outputs[0].close = () => new Promise((resolve) => {
+    finishStandbyClose = () => {
+      value.outputs[0].closed = true;
+      resolve();
+    };
+  });
+
+  const acquiring = value.lifecycle.acquire(settings, () => {}, () => {});
+  await nextTurn();
+  value.emitFrame(frame(20));
+  value.emitFrame(frame(21));
+  finishStandbyClose();
+  const guard = await acquiring;
+  const converted = [];
+  const stream = value.lifecycle.open(settings, (audio) => converted.push(audio.sequence), () => {});
+  value.emitFrame(frame(22));
+  assert.deepEqual(converted, []);
+
+  await stream.activate();
+  assert.deepEqual(converted, [20, 21, 22]);
+  assert.equal(value.opens.length, 1);
+  assert.equal(value.opens[0].closed, false);
+
+  await stream.pause();
+  value.emitFrame(frame(23));
+  assert.deepEqual(converted, [20, 21, 22]);
+  await stream.activate();
+  assert.deepEqual(converted, [20, 21, 22, 23]);
+  await stream.close();
+
+  const prepareStandby = value.audioOutput.prepare;
+  let resumeStandbyPrepare;
+  value.audioOutput.prepare = async (...args) => {
+    await new Promise((resolve) => { resumeStandbyPrepare = resolve; });
+    return prepareStandby(...args);
+  };
+  const returningToStandby = guard.close();
+  await nextTurn();
+  value.emitFrame(frame(24));
+  resumeStandbyPrepare();
+  await returningToStandby;
+  await nextTurn();
+  assert.deepEqual(value.outputs[1].writes.map((audio) => audio.sequence), [24]);
 });
 
 test("Windows standby fails closed when its JS queue exceeds the native passthrough bound", async () => {
@@ -161,6 +215,33 @@ test("Windows standby fails closed when its JS queue exceeds the native passthro
   assert.equal(failures[0].suppressionHeld, true);
   releaseWrite?.();
   await nextTurn();
+});
+
+test("Windows conversion handoff fails closed instead of dropping an unbounded transition", async () => {
+  const value = fixture();
+  const failures = [];
+  await value.lifecycle.startStandby(settings);
+  let finishStandbyClose;
+  value.outputs[0].close = () => new Promise((resolve) => { finishStandbyClose = resolve; });
+  const acquiring = value.lifecycle.acquire(settings, (error) => failures.push(error), () => {});
+  await nextTurn();
+
+  const tenMsSamples = format.sampleRate / 100;
+  for (let index = 0; index <= MAX_CONVERSION_HANDOFF_QUEUED_MS / 10; ++index) {
+    value.emitFrame(frame(index, tenMsSamples));
+  }
+  finishStandbyClose();
+
+  let failure;
+  try { await acquiring; }
+  catch (error) { failure = error; }
+  assert.equal(failure?.code, "windows_conversion_handoff_queue_exceeded");
+  assert.equal(failure?.suppressionHeld, true);
+  assert.equal(typeof failure?.suppressionSession?.close, "function");
+  assert.equal(failures[0], failure);
+  assert.equal(value.lifecycle.snapshot().state, "faulted");
+  await failure.suppressionSession.close();
+  assert.equal(value.lifecycle.snapshot().state, "standby");
 });
 
 test("Windows Quit is blocked until the user explicitly restores the persistent Volume Mixer route", async () => {

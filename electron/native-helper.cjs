@@ -112,7 +112,9 @@ function probeNativeHelper(executable, expectedHelper, {
     });
     child.stderr.on("data", (chunk) => { stderr += chunk.toString("utf8"); });
     child.once("error", (error) => finish(error));
-    child.once("exit", (code, signal) => {
+    // `exit` can precede the final stdout data event. `close` is the terminal
+    // boundary that proves every stdio stream has been drained.
+    child.once("close", (code, signal) => {
       try { parser.finish(); }
       catch (error) { finish(error); return; }
       if (code !== 0 || !message || message.helper !== expectedHelper || message.protocolVersion !== 1) {

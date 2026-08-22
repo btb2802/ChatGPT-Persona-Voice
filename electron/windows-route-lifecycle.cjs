@@ -1,6 +1,7 @@
 "use strict";
 
 const MAX_PASSTHROUGH_QUEUED_MS = 250;
+const MAX_CONVERSION_HANDOFF_QUEUED_MS = 5_000;
 
 const WINDOWS_MANUAL_RESTORE = Object.freeze({
   code: "windows_manual_route_restore_required",
@@ -52,16 +53,22 @@ class WindowsRouteLifecycle {
     this.settings = null;
     this.settingsIdentity = null;
     this.baseGuard = null;
-    this.standbyStream = null;
+    this.captureStream = null;
     this.standbyOutput = null;
     this.standbyGeneration = 0;
     this.standbyWriteQueue = Promise.resolve();
     this.standbyQueuedMs = 0;
     this.standbyFailure = null;
     this.conversionStream = null;
+    this.conversionFrameHandler = null;
+    this.conversionStreamError = null;
+    this.conversionActivated = false;
+    this.conversionPendingFrames = [];
+    this.conversionPendingMs = 0;
     this.conversionGuardOpen = false;
     this.conversionRouteError = null;
     this.conversionRouteStatus = null;
+    this.conversionFailure = null;
     this.standbyError = null;
     this.standbyStatus = null;
     this.lastRouteStatus = null;
@@ -77,13 +84,13 @@ class WindowsRouteLifecycle {
     return {
       state: this.state,
       routeHeld: Boolean(this.baseGuard),
-      standbyActive: this.state === "standby" && Boolean(this.standbyStream && this.standbyOutput),
+      standbyActive: this.state === "standby" && Boolean(this.captureStream && this.standbyOutput),
       conversionActive: this.state === "conversion",
       manualRestoreRequired: this.manualRouteMayPersist,
       currentSessionOffSinkObserved: this.currentSessionOffSinkObserved,
       persistentRoutingResetProven: false,
-      errorCode: this.routeFailure?.code ?? this.standbyFailure?.code ?? null,
-      error: this.routeFailure?.message ?? this.standbyFailure?.message ?? null,
+      errorCode: this.routeFailure?.code ?? this.standbyFailure?.code ?? this.conversionFailure?.code ?? null,
+      error: this.routeFailure?.message ?? this.standbyFailure?.message ?? this.conversionFailure?.message ?? null,
     };
   }
 
@@ -95,8 +102,8 @@ class WindowsRouteLifecycle {
         detail: WINDOWS_MANUAL_RESTORE.title,
       };
     }
-    if (this.routeFailure || this.standbyFailure) {
-      const failure = this.routeFailure || this.standbyFailure;
+    if (this.routeFailure || this.standbyFailure || this.conversionFailure) {
+      const failure = this.routeFailure || this.standbyFailure || this.conversionFailure;
       return {
         ready: false,
         code: failure.code || "windows_route_lifecycle_faulted",
@@ -206,15 +213,18 @@ class WindowsRouteLifecycle {
     if (!this.baseGuard || this.baseGuard.armed !== true || this.routeFailure) {
       throw this.routeFailure || new Error("Windows standby cannot start without an armed route");
     }
-    if (this.standbyStream || this.standbyOutput) {
-      throw new Error("Windows standby resources already exist");
-    }
+    if (this.standbyOutput) throw new Error("Windows standby output already exists");
     const generation = ++this.standbyGeneration;
     this.standbyFailure = null;
     this.standbyWriteQueue = Promise.resolve();
     this.standbyQueuedMs = 0;
+    this.conversionActivated = false;
+    this.conversionPendingFrames = [];
+    this.conversionPendingMs = 0;
     let output = null;
     try {
+      this.state = "standby-starting";
+      this.ensureCaptureStream();
       output = await this.audioOutput.prepare(
         { ...this.settings, outputMode: "passthrough" },
         this.baseGuard.format,
@@ -225,12 +235,11 @@ class WindowsRouteLifecycle {
         throw new Error("Windows standby startup was superseded");
       }
       this.standbyOutput = output;
-      this.standbyStream = this.processRoute.open(
-        this.settings,
-        (frame) => this.enqueuePassthrough(frame, generation),
-        (error) => this.handleStandbyFailure(error, generation),
-      );
+      const pending = this.conversionPendingFrames;
+      this.conversionPendingFrames = [];
+      this.conversionPendingMs = 0;
       this.state = "standby";
+      for (const frame of pending) this.enqueuePassthrough(frame, generation);
       if (this.lastRouteStatus) this.standbyStatus?.({ ...this.lastRouteStatus });
     } catch (error) {
       this.standbyFailure = normalizedError(error, "windows_standby_start_failed");
@@ -245,6 +254,72 @@ class WindowsRouteLifecycle {
       this.state = "faulted";
       throw this.standbyFailure;
     }
+  }
+
+  ensureCaptureStream() {
+    if (this.captureStream) return this.captureStream;
+    this.captureStream = this.processRoute.open(
+      this.settings,
+      (frame) => this.handleCapturedFrame(frame),
+      (error) => this.handleCaptureFailure(error),
+    );
+    return this.captureStream;
+  }
+
+  handleCapturedFrame(frame) {
+    if (this.state === "conversion" || this.state === "standby-starting") {
+      if (this.conversionActivated && this.conversionFrameHandler) {
+        this.conversionFrameHandler(frame);
+      } else {
+        this.enqueueConversionHandoff(frame);
+      }
+      return;
+    }
+    if (this.state === "standby" || this.state === "awaiting-restore") {
+      this.enqueuePassthrough(frame, this.standbyGeneration);
+    }
+  }
+
+  enqueueConversionHandoff(frame) {
+    let durationMs;
+    try { durationMs = frameDurationMs(frame); }
+    catch (error) { this.handleConversionStreamFailure(error); return; }
+    if (this.conversionPendingMs + durationMs > MAX_CONVERSION_HANDOFF_QUEUED_MS) {
+      const error = new Error(
+        `Windows conversion handoff exceeded ${MAX_CONVERSION_HANDOFF_QUEUED_MS} ms; original audio remains isolated`,
+      );
+      error.code = "windows_conversion_handoff_queue_exceeded";
+      error.suppressionHeld = this.baseGuard?.originalSuppressed === true;
+      this.handleConversionStreamFailure(error);
+      return;
+    }
+    this.conversionPendingFrames.push(frame);
+    this.conversionPendingMs += durationMs;
+  }
+
+  handleCaptureFailure(error) {
+    this.captureStream = null;
+    if (this.state === "conversion") {
+      this.handleConversionStreamFailure(error);
+      return;
+    }
+    this.handleStandbyFailure(error, this.standbyGeneration);
+  }
+
+  handleConversionStreamFailure(error) {
+    if (this.state === "shutdown" || this.state === "faulted") return;
+    if (this.state === "standby-starting") {
+      this.handleStandbyFailure(error, this.standbyGeneration);
+      return;
+    }
+    const failure = normalizedError(error, "windows_capture_failed");
+    failure.suppressionHeld = this.baseGuard?.originalSuppressed === true;
+    this.conversionFailure = failure;
+    this.conversionActivated = false;
+    this.state = "faulted";
+    const handler = this.conversionStreamError || this.conversionRouteError;
+    handler?.(failure);
+    this.logger?.error("native.windows_conversion_capture_failed", { message: failure.message });
   }
 
   enqueuePassthrough(frame, generation) {
@@ -308,12 +383,15 @@ class WindowsRouteLifecycle {
   }
 
   async closeStandbyResources() {
-    const stream = this.standbyStream;
+    const stream = this.captureStream;
     const output = this.standbyOutput;
     const writes = this.standbyWriteQueue;
     this.standbyGeneration += 1;
-    this.standbyStream = null;
+    this.captureStream = null;
     this.standbyOutput = null;
+    this.conversionActivated = false;
+    this.conversionPendingFrames = [];
+    this.conversionPendingMs = 0;
     const errors = [];
     if (stream) {
       try { await stream.close(); }
@@ -339,6 +417,32 @@ class WindowsRouteLifecycle {
     }
   }
 
+  async closeStandbyOutput() {
+    const output = this.standbyOutput;
+    const writes = this.standbyWriteQueue;
+    this.standbyGeneration += 1;
+    this.standbyOutput = null;
+    const errors = [];
+    try { await writes; }
+    catch (error) { errors.push(`queue: ${error instanceof Error ? error.message : String(error)}`); }
+    if (output) {
+      try { await output.close(); }
+      catch (error) {
+        errors.push(`output: ${error instanceof Error ? error.message : String(error)}`);
+        this.standbyOutput = output;
+      }
+    }
+    this.standbyWriteQueue = Promise.resolve();
+    this.standbyQueuedMs = 0;
+    if (errors.length > 0) {
+      const failure = new Error(`Windows standby output shutdown was not proven: ${errors.join("; ")}`);
+      failure.code = "windows_standby_cleanup_unproven";
+      failure.suppressionHeld = this.baseGuard?.originalSuppressed === true;
+      failure.suppressionSession = this.lifecycleGuard();
+      throw failure;
+    }
+  }
+
   async acquire(settings, onRouteError, onRouteStatus, { signal } = {}) {
     if (typeof onRouteError !== "function" || typeof onRouteStatus !== "function") {
       throw new Error("Windows conversion route lifecycle handlers are required");
@@ -351,14 +455,26 @@ class WindowsRouteLifecycle {
       }
       if (this.state === "faulted" && this.standbyFailure) throw this.standbyFailure;
       await this.ensureBaseRoute(settings, signal);
-      if (this.state === "standby" || this.standbyStream || this.standbyOutput) {
-        await this.closeStandbyResources();
-      }
       if (this.routeFailure) throw this.routeFailure;
       this.conversionRouteError = onRouteError;
       this.conversionRouteStatus = onRouteStatus;
       this.conversionGuardOpen = true;
+      this.conversionActivated = false;
+      this.conversionPendingFrames = [];
+      this.conversionPendingMs = 0;
+      this.conversionFailure = null;
       this.state = "conversion";
+      try {
+        this.ensureCaptureStream();
+        await this.closeStandbyOutput();
+        if (this.conversionFailure) throw this.conversionFailure;
+      } catch (error) {
+        this.state = "faulted";
+        if (error && typeof error === "object" && !error.suppressionSession) {
+          error.suppressionSession = this.conversionGuard();
+        }
+        throw error;
+      }
       if (this.lastRouteStatus) onRouteStatus({ ...this.lastRouteStatus });
       return this.conversionGuard();
     });
@@ -369,18 +485,48 @@ class WindowsRouteLifecycle {
       throw new Error("Acquire the Windows conversion route before opening capture");
     }
     if (this.conversionStream) throw new Error("The Windows conversion capture is already open");
-    const underlying = this.processRoute.open(settings, onFrame, onError);
-    this.conversionStream = underlying;
+    if (typeof onFrame !== "function" || typeof onError !== "function") {
+      throw new Error("Windows conversion frame and error handlers are required");
+    }
+    this.assertSameSource(settings);
+    this.ensureCaptureStream();
+    this.conversionFrameHandler = onFrame;
+    this.conversionStreamError = onError;
     let closed = false;
-    return {
-      format: { ...underlying.format },
+    const stream = {
+      format: { ...this.baseGuard.format },
+      activate: async () => {
+        if (closed || this.conversionStream !== stream || this.state !== "conversion") {
+          throw new Error("The Windows conversion capture cannot be activated in its current state");
+        }
+        const pending = this.conversionPendingFrames;
+        this.conversionPendingFrames = [];
+        this.conversionPendingMs = 0;
+        this.conversionActivated = true;
+        try {
+          for (const frame of pending) onFrame(frame);
+        } catch (error) {
+          this.handleConversionStreamFailure(error);
+          throw error;
+        }
+      },
+      pause: async () => {
+        if (closed || this.conversionStream !== stream) return;
+        this.conversionActivated = false;
+      },
       close: async () => {
         if (closed) return;
         closed = true;
-        await underlying.close();
-        if (this.conversionStream === underlying) this.conversionStream = null;
+        this.conversionActivated = false;
+        this.conversionPendingFrames = [];
+        this.conversionPendingMs = 0;
+        this.conversionFrameHandler = null;
+        this.conversionStreamError = null;
+        if (this.conversionStream === stream) this.conversionStream = null;
       },
     };
+    this.conversionStream = stream;
+    return stream;
   }
 
   conversionGuard() {
@@ -412,6 +558,7 @@ class WindowsRouteLifecycle {
             throw lifecycle.routeFailure;
           }
           try {
+            lifecycle.conversionFailure = null;
             await lifecycle.resumeStandby();
           } finally {
             lifecycle.conversionGuardOpen = false;
@@ -523,7 +670,7 @@ class WindowsRouteLifecycle {
       this.manualRestoreRequested = false;
       if (this.routeFailure || this.standbyFailure) {
         this.state = "faulted";
-      } else if (this.standbyStream && this.standbyOutput) {
+      } else if (this.captureStream && this.standbyOutput) {
         this.state = "standby";
       } else if (!this.baseGuard) {
         this.state = "cold";
@@ -593,6 +740,7 @@ class WindowsRouteLifecycle {
 }
 
 module.exports = {
+  MAX_CONVERSION_HANDOFF_QUEUED_MS,
   MAX_PASSTHROUGH_QUEUED_MS,
   WINDOWS_MANUAL_RESTORE,
   WindowsRouteLifecycle,
